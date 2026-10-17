@@ -1,0 +1,113 @@
+:root {
+  --red: #e63946;
+  --blue: #2563eb;
+  --green: #16a34a;
+  --yellow: #eab308;
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #1e293b;
+  --accent: #4f46e5;
+  --stamp-action: #ec4899;
+}
+* { box-sizing: border-box; font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif; }
+body { margin: 0; padding: 12px; background: var(--bg); color: var(--text); text-align: center; overscroll-behavior-y: contain; }
+h1 { margin: 6px 0 12px; font-size: 1.6rem; color: var(--accent); }
+.container { max-width: 960px; margin: 0 auto; }
+.card { background: var(--card); border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 16px; }
+.hidden { display: none !important; }
+.note { font-size: 0.85rem; color: #64748b; }
+.error-text { color: #dc2626; font-weight: bold; min-height: 1.2em; }
+input[type="text"], textarea, select { padding: 10px 12px; font-size: 1rem; border: 2px solid #cbd5e1; border-radius: 8px; margin: 4px; }
+button { padding: 10px 16px; font-size: 0.95rem; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; background: var(--accent); color: white; margin: 4px; transition: opacity 0.15s, transform 0.1s; touch-action: manipulation; }
+button:active { transform: scale(0.97); }
+button:disabled { background: #94a3b8 !important; cursor: not-allowed; transform: none; }
+button.secondary { background: #64748b; }
+button.danger { background: #ef4444; }
+button.small { padding: 6px 12px; font-size: 0.85rem; }
+button.stamp-confirm { background: var(--stamp-action); font-size: 1.15rem; padding: 12px 28px; box-shadow: 0 4px 10px rgba(236, 72, 153, 0.35); width: 90%; max-width: 340px; }
+
+/* ステータスバー */
+.status-bar { display: flex; justify-content: space-around; flex-wrap: wrap; background: #e0e7ff; padding: 10px; border-radius: 10px; margin-bottom: 12px; font-weight: bold; font-size: 0.95rem; }
+.status-item { margin: 2px 8px; }
+.room-actions { margin-bottom: 8px; }
+
+/* スタンプ選択ツール */
+.toolbar { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; margin: 8px 0; }
+.stamp-btn { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border: 3px solid transparent; border-radius: 10px; background: #f1f5f9; color: #1e293b; margin: 2px; }
+.stamp-btn.active { border-color: #0f172a; background: #e2e8f0; transform: scale(1.04); }
+.shape-icon { width: 20px; height: 20px; display: inline-block; flex-shrink: 0; }
+.icon-circle { background: var(--red); border-radius: 50%; }
+.icon-square { background: var(--blue); }
+.icon-triangle { width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 20px solid var(--green); background: transparent; }
+.icon-bar { width: 7px; height: 22px; background: var(--yellow); margin: 0 6px; }
+
+/* キャンバス */
+.canvas-wrapper { display: inline-block; position: relative; margin: 6px auto; background: #cbd5e1; padding: 10px; border-radius: 12px; max-width: 100%; }
+canvas.draw-canvas { background: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.15); cursor: crosshair; touch-action: none; display: block; max-width: 100%; height: auto; }
+
+/* スマホ向け微調整コントロールパネル */
+.fine-tune-panel { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 12px; padding: 10px; max-width: 440px; margin: 8px auto; }
+.dpad-container { display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 10px; }
+.dpad-grid { display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 42px); gap: 4px; justify-content: center; }
+.dpad-btn { padding: 0; margin: 0; font-size: 1.1rem; background: #334155; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; user-select: none; }
+.dpad-center { font-size: 0.75rem; color: #475569; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+.angle-controls { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.angle-quick-btns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.angle-quick-btns button { padding: 6px 10px; font-size: 0.85rem; margin: 0; background: #475569; }
+
+/* 画家の進捗表示 */
+.painter-progress { font-size: 0.85rem; color: #475569; margin: 4px 0 8px; }
+.painter-progress .badge { font-size: 0.75rem; padding: 2px 8px; }
+
+/* カスタムお題ボックス */
+.custom-word-box { background: #f8fafc; border: 2px dashed #94a3b8; border-radius: 10px; padding: 12px; margin: 14px auto; max-width: 600px; text-align: left; }
+.custom-word-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; max-height: 140px; overflow-y: auto; padding: 4px; }
+.custom-chip { background: #e0e7ff; color: #1e40af; padding: 4px 10px; border-radius: 16px; font-size: 0.85rem; font-weight: bold; display: inline-flex; align-items: center; gap: 6px; }
+.custom-chip button { background: transparent; color: #ef4444; padding: 0 2px; margin: 0; font-size: 0.9rem; }
+
+/* 連戦成績 */
+.series-box { background: #fefce8; border: 2px solid #facc15; border-radius: 10px; padding: 10px; margin: 14px auto; max-width: 600px; }
+.series-title { font-weight: bold; margin-bottom: 4px; }
+.series-log { font-size: 1.2rem; letter-spacing: 2px; margin: 4px 0; word-break: break-all; }
+
+/* ロビーのプレイヤー表示 */
+.player-chip { display: inline-flex; align-items: center; gap: 4px; background: #fef3c7; border: 2px solid #f59e0b; padding: 4px 12px; border-radius: 20px; font-weight: bold; font-size: 0.95rem; margin: 2px; }
+.player-chip.offline { opacity: 0.5; border-style: dashed; }
+.player-chip button { background: transparent; color: #ef4444; padding: 0 2px; margin: 0 0 0 2px; font-size: 0.9rem; }
+
+/* ギャラリー（予想・結果画面） */
+.gallery { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; margin-top: 12px; }
+.sheet-card { background: #f8fafc; border: 2px solid #cbd5e1; border-radius: 12px; padding: 12px; width: 280px; display: flex; flex-direction: column; align-items: center; }
+.sheet-card.correct { border-color: #16a34a; background: #f0fdf4; }
+.sheet-card.wrong { border-color: #dc2626; background: #fef2f2; }
+.sheet-card canvas { background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.12); max-width: 100%; height: auto; margin-bottom: 10px; }
+.word-pool { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 10px 0; }
+.word-chip { background: #fef3c7; border: 2px solid #f59e0b; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 0.95rem; }
+.word-chip.assigned { opacity: 0.35; text-decoration: line-through; }
+select.guess-select { width: 100%; padding: 8px; font-size: 1rem; border-radius: 6px; border: 2px solid #94a3b8; font-weight: bold; margin: 0; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.85rem; font-weight: bold; margin-left: 6px; }
+.badge-done { background: #bbf7d0; color: #166534; }
+.badge-wait { background: #e2e8f0; color: #475569; }
+.result-ok { color: #16a34a; font-weight: bold; font-size: 1.1rem; }
+.result-ng { color: #dc2626; font-weight: bold; font-size: 1.1rem; }
+
+/* ドラムロール演出 */
+.drum { display: inline-block; animation: drum-shake 0.16s infinite alternate; }
+@keyframes drum-shake {
+  from { transform: rotate(-14deg) scale(1.0); }
+  to   { transform: rotate(14deg)  scale(1.25); }
+}
+.reveal-pop { animation: reveal-pop 0.5s ease-out; }
+@keyframes reveal-pop {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* 切断警告 */
+.warn { background: #fef3c7; border: 2px solid #f59e0b; color: #92400e; border-radius: 10px; padding: 8px; margin-bottom: 12px; font-weight: bold; font-size: 0.9rem; }
+
+/* 予想画面：カード選択・ドロップ */
+.word-chip.pickable { cursor: pointer; user-select: none; }
+.word-chip.picked { background: #fde68a; outline: 3px solid #f59e0b; }
+.sheet-card.drop-over { border-color: var(--accent); background: #eef2ff; }

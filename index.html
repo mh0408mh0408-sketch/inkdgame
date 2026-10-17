@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="スタンプ絵作りクイズ『インク de リンク！』をブラウザで協力プレイ">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎨</text></svg>">
+  <title>オンライン版 インク de リンク！</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="container">
+  <h1>🎨 インク de リンク！ Online</h1>
+
+  <!-- 1. ログイン・合言葉入力画面 -->
+  <div id="screen-login" class="card">
+    <h2>部屋を作る / 入る</h2>
+    <div>
+      <input type="text" id="input-name" placeholder="あなたの名前" maxlength="12" style="width: 240px;" autocomplete="off">
+    </div>
+    <div>
+      <input type="text" id="input-pass" placeholder="合言葉（例: りんご）" maxlength="20" style="width: 240px;" autocomplete="off">
+    </div>
+    <div style="margin-top: 12px;">
+      <button id="btn-create">新しく部屋を作る（ホスト）</button>
+      <button id="btn-join" class="secondary">合言葉で部屋に入る</button>
+    </div>
+    <p id="login-error" class="error-text"></p>
+    <p class="note">切断・リロードしても、同じ名前で入り直せば元の席に戻れます。</p>
+  </div>
+
+  <!-- ゲーム中ステータスバー -->
+  <div id="status-bar" class="status-bar hidden">
+    <div class="status-item">合言葉: <span id="st-room">-</span></div>
+    <div class="status-item">ラウンド: <span id="st-round">1</span>/5 (上限<span id="st-limit">5</span>回)</div>
+    <div class="status-item">累計ミス: <span id="st-mistakes">0</span> / 許容<span id="st-max-mistakes">0</span></div>
+    <div class="status-item">連戦: <span id="st-series">0戦 0勝 0敗</span></div>
+  </div>
+
+  <!-- 退出・中断 -->
+  <div id="room-actions" class="room-actions hidden">
+    <button id="btn-leave" class="secondary small">🚪 部屋を出る</button>
+    <button id="btn-abort" class="danger small hidden">⏹ ゲームを中断してロビーへ（ホスト）</button>
+  </div>
+
+  <div id="offline-warning" class="warn hidden"></div>
+
+  <!-- 2. ロビー待機画面 -->
+  <div id="screen-lobby" class="card hidden">
+    <h2>待機ロビー（合言葉：<span id="lobby-pass"></span>）</h2>
+    <p style="margin: 4px 0;">2〜8人で遊べます。全員が揃ったらホストが開始してください。</p>
+    <div id="lobby-players" style="margin: 12px 0; font-size: 1.05rem;"></div>
+    <button id="btn-copy-link" class="secondary small">🔗 招待リンクをコピー</button>
+
+    <!-- 連戦成績 -->
+    <div id="series-box" class="series-box hidden">
+      <div class="series-title">🏅 連戦成績（このメンバーでの通算）</div>
+      <div id="series-text"></div>
+      <div id="series-log" class="series-log"></div>
+      <button id="btn-reset-series" class="secondary small hidden">成績をリセット（ホスト）</button>
+    </div>
+
+    <!-- カスタムお題追加エリア（全員利用可能） -->
+    <div class="custom-word-box">
+      <div style="font-weight: bold; margin-bottom: 6px;">📝 カスタムお題を追加する（参加者全員が追加できます）</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        <input type="text" id="input-custom-word" placeholder="お題を入力（『、』区切りで複数可）" style="flex: 1; min-width: 200px; margin: 0;" autocomplete="off">
+        <button id="btn-add-word" style="margin: 0;">＋ 追加</button>
+      </div>
+      <div style="font-size: 0.85rem; color: #64748b; margin-top: 6px;">
+        登録中のカスタムお題（<span id="custom-word-count">0</span>個）：
+      </div>
+      <div id="custom-word-list" class="custom-word-list"></div>
+    </div>
+
+    <!-- ホスト専用設定 -->
+    <div id="host-controls" class="hidden" style="margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
+      <div style="margin-bottom: 10px;">
+        <label style="font-weight: bold;">お題の出題モード：</label>
+        <select id="sel-word-mode">
+          <option value="mix">カスタムと標準を半々でミックス（推奨）</option>
+          <option value="custom">カスタム優先（足りなければ標準で補充）</option>
+          <option value="default">標準お題（100語）のみ</option>
+        </select>
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label style="font-weight: bold; cursor: pointer;">
+          <input type="checkbox" id="chk-dummy" checked>
+          「はみ出し者」ルール（予想時にダミーのお題カードを＋2枚混ぜる）
+        </label>
+      </div>
+      <button id="btn-start" style="font-size: 1.15rem; padding: 12px 32px;">ゲーム開始！</button>
+    </div>
+    <div id="guest-settings" class="hidden note" style="margin-top: 14px;"></div>
+  </div>
+
+  <!-- 3. お絵かきステップ画面 -->
+  <div id="screen-draw" class="card hidden">
+    <div id="captain-wait-view" class="hidden">
+      <h2>👑 あなたはこのラウンドの「キャプテン（回答者）」です！</h2>
+      <p>画家たちがスタンプでお題を描いています。全員の提出が終わるまでお待ちください。</p>
+      <div id="draw-progress-list" style="margin: 20px 0;"></div>
+    </div>
+
+    <div id="painter-draw-view" class="hidden">
+      <div id="sheet-tabs" style="margin-bottom: 8px;"></div>
+      <h2 style="margin: 4px 0; font-size: 1.35rem;">お題：「<span id="my-word" style="color: var(--accent);"></span>」</h2>
+      <p style="margin: 2px 0;">残りスタンプ回数：あと <strong id="remaining-stamps" style="font-size: 1.35rem; color: var(--red);">5</strong> 回</p>
+      <div id="painter-progress" class="painter-progress"></div>
+
+      <!-- スタンプ種類選択 -->
+      <div class="toolbar">
+        <button class="stamp-btn active" data-type="circle"><span class="shape-icon icon-circle"></span>赤・丸</button>
+        <button class="stamp-btn" data-type="square"><span class="shape-icon icon-square"></span>青・四角</button>
+        <button class="stamp-btn" data-type="triangle"><span class="shape-icon icon-triangle"></span>緑・三角</button>
+        <button class="stamp-btn" data-type="bar"><span class="shape-icon icon-bar"></span>黄・棒</button>
+      </div>
+
+      <!-- キャンバス本体 -->
+      <div class="canvas-wrapper">
+        <canvas id="draw-canvas" class="draw-canvas" width="320" height="220"></canvas>
+      </div>
+      <div style="font-size: 0.8rem; color: #475569; margin-bottom: 6px;">
+        💡 キャンバスをタップ/ドラッグして仮置きし、下のボタンで微調整してから<strong>「ここにスタンプを押す！」</strong>で確定します。<br>
+        PC：ホイールで回転 / ダブルクリックで押印。キャンバスの端からはみ出して押してもOKです。
+      </div>
+
+      <!-- スタンプ確定ボタン -->
+      <div style="margin: 8px 0;">
+        <button id="btn-stamp-commit" class="stamp-confirm">📌 ここにスタンプを押す！</button>
+      </div>
+
+      <!-- スマホ対応・位置＆角度の微調整パネル -->
+      <div class="fine-tune-panel">
+        <div class="dpad-container">
+          <!-- 十字キー（位置微調整） -->
+          <div>
+            <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 4px;">位置の微調整</div>
+            <div class="dpad-grid">
+              <div></div>
+              <button class="dpad-btn" data-dx="0" data-dy="-1">⬆️</button>
+              <div></div>
+              <button class="dpad-btn" data-dx="-1" data-dy="0">⬅️</button>
+              <div class="dpad-center">移動</div>
+              <button class="dpad-btn" data-dx="1" data-dy="0">➡️</button>
+              <div></div>
+              <button class="dpad-btn" data-dx="0" data-dy="1">⬇️</button>
+              <div></div>
+            </div>
+            <div style="margin-top: 4px; font-size: 0.8rem;">
+              移動幅:
+              <label><input type="radio" name="step-size" value="2"> 細かく(2px)</label>
+              <label><input type="radio" name="step-size" value="8" checked> 標準(8px)</label>
+            </div>
+          </div>
+
+          <!-- 角度微調整 -->
+          <div class="angle-controls">
+            <div style="font-size: 0.85rem; font-weight: bold;">回転角度: <span id="angle-val">0</span>°</div>
+            <input type="range" id="angle-slider" min="0" max="359" value="0" style="width: 190px; margin: 4px 0;">
+            <div class="angle-quick-btns">
+              <button type="button" class="btn-angle-step" data-da="-45">-45°</button>
+              <button type="button" class="btn-angle-step" data-da="-15">-15°</button>
+              <button type="button" class="btn-angle-step" data-da="-5">-5°</button>
+              <button type="button" class="btn-angle-step" data-da="5">+5°</button>
+              <button type="button" class="btn-angle-step" data-da="15">+15°</button>
+              <button type="button" class="btn-angle-step" data-da="45">+45°</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- シート操作・提出ツールバー -->
+      <div class="toolbar" style="margin-top: 10px;">
+        <button id="btn-rotate-sheet" class="secondary">🔄 シート縦横切替</button>
+        <button id="btn-undo" class="secondary">↩️ 1つ戻す</button>
+        <button id="btn-clear" class="danger">🗑️ 全消去</button>
+      </div>
+
+      <div style="margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+        <button id="btn-submit-sheet" style="font-size: 1.05rem; padding: 12px 24px;">✅ 完成！このシートを提出する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. 予想ステップ画面 -->
+  <div id="screen-guess" class="card hidden">
+    <h2 id="guess-title">予想ステップ</h2>
+    <p style="margin: 4px 0;">今回のお題カード一覧（シャッフル済み・割り当て済みのカードは薄く表示）：</p>
+    <div id="guess-word-pool" class="word-pool"></div>
+    <div id="guess-gallery" class="gallery"></div>
+    <div id="captain-submit-area" class="hidden" style="margin-top: 20px;">
+      <p id="guess-remaining" class="note"></p>
+      <button id="btn-confirm-guesses" style="font-size: 1.1rem; padding: 12px 28px;">回答を確定して答え合わせへ！</button>
+    </div>
+  </div>
+
+  <!-- 5. 答え合わせ＆結果画面 -->
+  <div id="screen-reveal" class="card hidden">
+    <h2 id="reveal-header"><span class="drum">🥁</span> ドラムロール……</h2>
+    <div id="reveal-content" class="hidden">
+      <div id="reveal-gallery" class="gallery"></div>
+      <h3 id="reveal-summary" style="margin-top: 20px; font-size: 1.35rem;"></h3>
+      <div id="next-action-area" style="margin-top: 16px;"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
