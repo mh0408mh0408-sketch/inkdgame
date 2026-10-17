@@ -124,6 +124,8 @@ function showScreen(name) {
   Object.values(screens).forEach(e => e.classList.add("hidden"));
   screens[name].classList.remove("hidden");
   $("status-bar").classList.toggle("hidden", name === "login" || name === "lobby");
+  // 「部屋を出る」ボタンはロビー画面のみ表示（ゲーム中の誤タップ・誤退出を防止）
+  $("btn-leave").classList.toggle("hidden", name !== "lobby");
   $("room-actions").classList.toggle("hidden", name === "login");
 }
 
