@@ -98,88 +98,138 @@
   <!-- 3. お絵かきステップ画面 -->
   <div id="screen-draw" class="card hidden">
     <div id="captain-wait-view" class="hidden">
+      <div class="draw-timer hidden"></div>
       <h2>👑 あなたはこのラウンドの「キャプテン（回答者）」です！</h2>
       <p>画家たちがスタンプでお題を描いています。全員の提出が終わるまでお待ちください。</p>
       <div id="draw-progress-list" style="margin: 20px 0;"></div>
     </div>
 
     <div id="painter-draw-view" class="hidden">
-      <div id="sheet-tabs" style="margin-bottom: 8px;"></div>
-      <h2 style="margin: 4px 0; font-size: 1.35rem;">お題：「<span id="my-word" style="color: var(--accent);"></span>」</h2>
-      <p style="margin: 2px 0;">残りスタンプ回数：あと <strong id="remaining-stamps" style="font-size: 1.35rem; color: var(--red);">5</strong> 回</p>
-      <div id="painter-progress" class="painter-progress"></div>
+      <!-- 画面上部に固定表示：絵を見たまま主要操作ができる（スマホでスクロール不要） -->
+      <div class="draw-sticky">
+        <div id="sheet-tabs"></div>
+        <div class="draw-head">
+          お題：「<span id="my-word"></span>」
+          <span class="draw-remain">残り <strong id="remaining-stamps">5</strong> 回</span>
+        </div>
+        <div class="draw-timer hidden"></div>
 
-      <!-- スタンプ種類選択 -->
-      <div class="toolbar">
-        <button class="stamp-btn active" data-type="circle"><span class="shape-icon icon-circle"></span>赤・丸</button>
-        <button class="stamp-btn" data-type="square"><span class="shape-icon icon-square"></span>青・四角</button>
-        <button class="stamp-btn" data-type="triangle"><span class="shape-icon icon-triangle"></span>緑・三角</button>
-        <button class="stamp-btn" data-type="bar"><span class="shape-icon icon-bar"></span>黄・棒</button>
-      </div>
+        <div class="canvas-wrapper">
+          <canvas id="draw-canvas" class="draw-canvas" width="320" height="220"></canvas>
+        </div>
 
-      <!-- キャンバス本体 -->
-      <div class="canvas-wrapper">
-        <canvas id="draw-canvas" class="draw-canvas" width="320" height="220"></canvas>
-      </div>
-      <div style="font-size: 0.8rem; color: #475569; margin-bottom: 6px;">
-        💡 キャンバスをタップ/ドラッグして仮置きし、下のボタンで微調整してから<strong>「ここにスタンプを押す！」</strong>で確定します。<br>
-        PC：ホイールで回転 / ダブルクリックで押印。キャンバスの端からはみ出して押してもOKです。
-      </div>
+        <!-- 行1：スタンプ種類・モード切替 -->
+        <div class="quick-row">
+          <button class="stamp-btn active" data-type="circle" title="赤・丸 [1]"><span class="shape-icon icon-circle"></span>丸</button>
+          <button class="stamp-btn" data-type="square" title="青・四角 [2]"><span class="shape-icon icon-square"></span>四角</button>
+          <button class="stamp-btn" data-type="triangle" title="緑・三角 [3]"><span class="shape-icon icon-triangle"></span>三角</button>
+          <button class="stamp-btn" data-type="bar" title="黄・棒 [4]"><span class="shape-icon icon-bar"></span>棒</button>
+          <button id="btn-mode-toggle" class="qbtn secondary" title="スタンプ／選択・消しゴム切替 [E]">👆選択</button>
+        </div>
 
-      <!-- スタンプ確定ボタン -->
-      <div style="margin: 8px 0;">
-        <button id="btn-stamp-commit" class="stamp-confirm">📌 ここにスタンプを押す！</button>
-      </div>
+        <!-- 行2：スタンプモード＝押す ／ 選択モード＝消しゴム・レイヤー -->
+        <div id="row-stamp-actions" class="quick-row">
+          <button id="btn-stamp-commit" class="stamp-confirm">📌 押す！</button>
+        </div>
+        <div id="row-select-actions" class="quick-row hidden">
+          <button id="btn-erase" class="qbtn danger" title="選んだスタンプを消す [Delete]">🧽 消す</button>
+          <button id="btn-layer-up" class="qbtn" title="1つ前面へ []]">⬆ 前へ</button>
+          <button id="btn-layer-down" class="qbtn" title="1つ背面へ [[]">⬇ 後ろへ</button>
+        </div>
 
-      <!-- スマホ対応・位置＆角度の微調整パネル -->
-      <div class="fine-tune-panel">
-        <div class="dpad-container">
-          <!-- 十字キー（位置微調整） -->
-          <div>
-            <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 4px;">位置の微調整</div>
-            <div class="dpad-grid">
-              <div></div>
-              <button class="dpad-btn" data-dx="0" data-dy="-1">⬆️</button>
-              <div></div>
-              <button class="dpad-btn" data-dx="-1" data-dy="0">⬅️</button>
-              <div class="dpad-center">移動</div>
-              <button class="dpad-btn" data-dx="1" data-dy="0">➡️</button>
-              <div></div>
-              <button class="dpad-btn" data-dx="0" data-dy="1">⬇️</button>
-              <div></div>
-            </div>
-            <div style="margin-top: 4px; font-size: 0.8rem;">
-              移動幅:
-              <label><input type="radio" name="step-size" value="2"> 細かく(2px)</label>
-              <label><input type="radio" name="step-size" value="8" checked> 標準(8px)</label>
-            </div>
-          </div>
-
-          <!-- 角度微調整 -->
-          <div class="angle-controls">
-            <div style="font-size: 0.85rem; font-weight: bold;">回転角度: <span id="angle-val">0</span>°</div>
-            <input type="range" id="angle-slider" min="0" max="359" value="0" style="width: 190px; margin: 4px 0;">
-            <div class="angle-quick-btns">
-              <button type="button" class="btn-angle-step" data-da="-45">-45°</button>
-              <button type="button" class="btn-angle-step" data-da="-15">-15°</button>
-              <button type="button" class="btn-angle-step" data-da="-5">-5°</button>
-              <button type="button" class="btn-angle-step" data-da="5">+5°</button>
-              <button type="button" class="btn-angle-step" data-da="15">+15°</button>
-              <button type="button" class="btn-angle-step" data-da="45">+45°</button>
-            </div>
-          </div>
+        <!-- 行3：戻す／進む・角度・縦横 -->
+        <div class="quick-row">
+          <button id="btn-undo" class="qbtn secondary" title="1つ戻す [Ctrl+Z]">↩</button>
+          <button id="btn-redo" class="qbtn secondary" title="1つ進む [Ctrl+Y]">↪</button>
+          <button type="button" class="qbtn btn-angle-step" data-da="-15">-15°</button>
+          <button type="button" class="qbtn btn-angle-step" data-da="-5">-5°</button>
+          <button type="button" class="qbtn btn-angle-step" data-da="5">+5°</button>
+          <button type="button" class="qbtn btn-angle-step" data-da="15">+15°</button>
+          <button id="btn-rotate-sheet" class="qbtn secondary" title="シート縦横切替 [T]">🔄縦横</button>
         </div>
       </div>
 
-      <!-- シート操作・提出ツールバー -->
-      <div class="toolbar" style="margin-top: 10px;">
-        <button id="btn-rotate-sheet" class="secondary">🔄 シート縦横切替</button>
-        <button id="btn-undo" class="secondary">↩️ 1つ戻す</button>
-        <button id="btn-clear" class="danger">🗑️ 全消去</button>
-      </div>
+      <div class="draw-scroll">
+        <div id="painter-progress" class="painter-progress"></div>
+        <div id="draw-hint" class="note"></div>
 
-      <div style="margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
-        <button id="btn-submit-sheet" style="font-size: 1.05rem; padding: 12px 24px;">✅ 完成！このシートを提出する</button>
+        <!-- レイヤー・全消去（選択モード用の追加操作） -->
+        <div class="toolbar">
+          <button id="btn-layer-front" class="secondary small" title="最前面へ [Shift+]]">⏫ 最前面へ</button>
+          <button id="btn-layer-back" class="secondary small" title="最背面へ [Shift+[]">⏬ 最背面へ</button>
+          <button id="btn-clear" class="danger small" title="全消去 [Shift+Delete]（↩で元に戻せます）">🗑️ 全消去</button>
+        </div>
+
+        <!-- 位置＆角度の微調整パネル -->
+        <div class="fine-tune-panel">
+          <div class="dpad-container">
+            <!-- 十字キー（位置微調整） -->
+            <div>
+              <div style="font-size: 0.8rem; font-weight: bold; margin-bottom: 4px;">位置の微調整</div>
+              <div class="dpad-grid">
+                <div></div>
+                <button class="dpad-btn" data-dx="0" data-dy="-1">⬆️</button>
+                <div></div>
+                <button class="dpad-btn" data-dx="-1" data-dy="0">⬅️</button>
+                <div class="dpad-center">移動</div>
+                <button class="dpad-btn" data-dx="1" data-dy="0">➡️</button>
+                <div></div>
+                <button class="dpad-btn" data-dx="0" data-dy="1">⬇️</button>
+                <div></div>
+              </div>
+              <div style="margin-top: 4px; font-size: 0.8rem;">
+                移動幅:
+                <label><input type="radio" name="step-size" value="2"> 細かく(2px)</label>
+                <label><input type="radio" name="step-size" value="8" checked> 標準(8px)</label>
+              </div>
+            </div>
+
+            <!-- 角度微調整 -->
+            <div class="angle-controls">
+              <div style="font-size: 0.85rem; font-weight: bold;">回転角度: <span id="angle-val">0</span>°</div>
+              <input type="range" id="angle-slider" min="0" max="359" value="0" style="width: 190px; margin: 4px 0;">
+              <div class="angle-quick-btns">
+                <button type="button" class="btn-angle-step" data-da="-45">-45°</button>
+                <button type="button" class="btn-angle-step" data-da="-15">-15°</button>
+                <button type="button" class="btn-angle-step" data-da="-5">-5°</button>
+                <button type="button" class="btn-angle-step" data-da="-1">-1°</button>
+                <button type="button" class="btn-angle-step" data-da="1">+1°</button>
+                <button type="button" class="btn-angle-step" data-da="5">+5°</button>
+                <button type="button" class="btn-angle-step" data-da="15">+15°</button>
+                <button type="button" class="btn-angle-step" data-da="45">+45°</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+          <button id="btn-submit-sheet" style="font-size: 1.05rem; padding: 12px 24px;" title="提出 [Ctrl+Enter]">✅ 完成！このシートを提出する</button>
+        </div>
+
+        <!-- PC向けキーボード操作一覧 -->
+        <details class="key-help">
+          <summary>⌨️ キーボード操作一覧（PC）</summary>
+          <table>
+            <tr><th>操作</th><th>キー</th></tr>
+            <tr><td>スタンプを押す</td><td><kbd>Space</kbd> / <kbd>Enter</kbd>（ダブルクリックも可）</td></tr>
+            <tr><td>スタンプ種類（丸・四角・三角・棒）</td><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td></tr>
+            <tr><td>位置を動かす</td><td><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd>（<kbd>Shift</kbd>併用で2px）</td></tr>
+            <tr><td>回転 ∓45° / ±45°</td><td><kbd>Q</kbd> / <kbd>W</kbd></td></tr>
+            <tr><td>回転 ∓15° / ±15°</td><td><kbd>A</kbd> / <kbd>S</kbd></td></tr>
+            <tr><td>回転 ∓5° / ±5°</td><td><kbd>Z</kbd> / <kbd>X</kbd>（ホイールも±5°）</td></tr>
+            <tr><td>回転 ∓1° / ±1°</td><td><kbd>C</kbd> / <kbd>V</kbd></td></tr>
+            <tr><td>1つ戻す / 1つ進む</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd>（<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>も可）</td></tr>
+            <tr><td>シート縦横切替</td><td><kbd>T</kbd></td></tr>
+            <tr><td>スタンプ／選択・消しゴム切替</td><td><kbd>E</kbd></td></tr>
+            <tr><td>選択モード：スタンプを順に選ぶ</td><td><kbd>,</kbd>（前） / <kbd>.</kbd>（次）、またはキャンバスをクリック</td></tr>
+            <tr><td>選択モード：選んだスタンプを消す</td><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td></tr>
+            <tr><td>選択モード：レイヤーを1つ前面へ / 背面へ</td><td><kbd>]</kbd> / <kbd>[</kbd></td></tr>
+            <tr><td>選択モード：最前面へ / 最背面へ</td><td><kbd>Shift</kbd>+<kbd>]</kbd> / <kbd>Shift</kbd>+<kbd>[</kbd></td></tr>
+            <tr><td>全消去（戻すで復元可）</td><td><kbd>Shift</kbd>+<kbd>Delete</kbd></td></tr>
+            <tr><td>担当シートの切替（複数担当時）</td><td><kbd>PageUp</kbd> / <kbd>PageDown</kbd></td></tr>
+            <tr><td>提出する</td><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td></tr>
+          </table>
+        </details>
       </div>
     </div>
   </div>

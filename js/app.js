@@ -4,7 +4,10 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-database.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { DEFAULT_WORD_POOL } from "./words.js";
-import { renderSheetToCanvas, rotatePoint, rotateStamps, SHEET_SIZE, OVERHANG } from "./draw.js";
+import {
+  renderSheetToCanvas, renderSheetWithSelection, findStampAt,
+  rotatePoint, rotateStamps, SHEET_SIZE, OVERHANG
+} from "./draw.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
@@ -394,7 +397,7 @@ async function backToLobby() {
   await update(roomRef(), {
     status: "lobby", round: 1, mistakes: 0, roundMistakes: 0, captainIndex: 0,
     gameResult: null, sheets: null, sheetOrder: null, choices: null,
-    order: null, revealAt: null, roundId: null
+    order: null, revealAt: null, roundId: null, drawDeadline: null
   });
 }
 
@@ -466,6 +469,7 @@ async function startRound({ round, captainIndex, mistakes, order, usedWords, ext
     roundMistakes: 0,
     gameResult: null,
     revealAt: null,
+    drawDeadline: null, // 制限時間は画家が残り1人になった時点でセットされる
     roundId: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     sheets,
     sheetOrder: shuffle(sheetKeys), // 表示順をシャッフル（誰の絵かを推測されないように）
@@ -665,10 +669,46 @@ function renderLobby(ids, isHost) {
 // ---------------- お絵かき ----------------
 const drawCanvas = $("draw-canvas");
 
+const DRAW_LIMIT_MS = 30000;   // 画家が残り1人になってからの制限時間
+const HISTORY_LIMIT = 100;     // 戻す／進むの履歴の最大数
+const STAMP_LABELS = { circle: "赤い丸", square: "青い四角", triangle: "緑の三角", bar: "黄色い棒" };
+
+let toolMode = "stamp";  // "stamp"（押す）| "select"（選択・消しゴム・レイヤー）
+let selectedIdx = -1;    // 選択モードで選んでいるスタンプの番号（配列の後ろほど前面）
+let autoSubmittedRound = null;
+let forcedRound = null;
+let deadlineSetRound = null;
+
 function draftKey(roundSheetKey) { return `inkd_draft:${roomKey}:${roundSheetKey}`; }
 
 function saveDraft(rsKey) {
   try { sessionStorage.setItem(draftKey(rsKey), JSON.stringify(localSheets[rsKey])); } catch { /* 容量超過などは無視 */ }
+}
+
+// シートごとの作業状態（stamps / orientation / undo / redo）を返す
+function stateForSheet(sheetId) {
+  const sheet = roomData.sheets[sheetId];
+  const rsKey = `${roomData.roundId}/${sheetId}`;
+  if (sheet.submitted) {
+    return {
+      rsKey, submitted: true,
+      state: { stamps: toArray(sheet.stamps), orientation: sheet.orientation || "landscape", undo: [], redo: [] }
+    };
+  }
+  if (!localSheets[rsKey]) {
+    let restored = null;
+    try { restored = JSON.parse(sessionStorage.getItem(draftKey(rsKey))); } catch { /* ignore */ }
+    if (restored && Array.isArray(restored.stamps)) {
+      restored.undo = Array.isArray(restored.undo) ? restored.undo : [];
+      restored.redo = Array.isArray(restored.redo) ? restored.redo : [];
+      localSheets[rsKey] = restored;
+    } else {
+      localSheets[rsKey] = {
+        stamps: toArray(sheet.stamps), orientation: sheet.orientation || "landscape", undo: [], redo: []
+      };
+    }
+  }
+  return { rsKey, submitted: false, state: localSheets[rsKey] };
 }
 
 // 現在操作中のシートと、その作業用状態を返す
@@ -678,21 +718,13 @@ function currentSheetCtx() {
   const mine = Object.keys(sheets).filter(k => sheets[k].ownerId === myId);
   const sheetId = mine[activeSheetIndex];
   if (!sheetId) return null;
-  const sheet = sheets[sheetId];
-  const rsKey = `${roomData.roundId}/${sheetId}`;
+  return { sheetId, sheet: sheets[sheetId], mine, ...stateForSheet(sheetId) };
+}
 
-  if (sheet.submitted) {
-    return { sheetId, sheet, rsKey, submitted: true, mine,
-      state: { stamps: toArray(sheet.stamps), orientation: sheet.orientation || "landscape" } };
-  }
-  if (!localSheets[rsKey]) {
-    let restored = null;
-    try { restored = JSON.parse(sessionStorage.getItem(draftKey(rsKey))); } catch { /* ignore */ }
-    localSheets[rsKey] = restored && Array.isArray(restored.stamps)
-      ? restored
-      : { stamps: toArray(sheet.stamps), orientation: sheet.orientation || "landscape" };
-  }
-  return { sheetId, sheet, rsKey, submitted: false, mine, state: localSheets[rsKey] };
+// 編集可能（未提出）のときだけ返す
+function editableCtx() {
+  const c = currentSheetCtx();
+  return c && !c.submitted ? c : null;
 }
 
 function clampPreview(p, orient) {
@@ -708,6 +740,7 @@ function centerOf(orient) {
   return { x: w / 2, y: h / 2 };
 }
 
+// 画家ごとの未提出状況から、制限時間の起動・表示を行う
 function renderDraw(ids, isCaptain, isHost) {
   showScreen("draw");
   const sheets = roomData.sheets || {};
@@ -718,13 +751,27 @@ function renderDraw(ids, isCaptain, isHost) {
     activeSheetIndex = 0;
     pickedWord = null;
     previewPos = { x: 160, y: 110 };
+    toolMode = "stamp";
+    selectedIdx = -1;
   }
 
-  // 全員提出済みで予想フェーズへ（ホストが進行）
   const allSubmitted = sheetKeys.length > 0 && sheetKeys.every(k => sheets[k].submitted);
-  if (allSubmitted && isHost && advancingRoundId !== roomData.roundId) {
-    advancingRoundId = roomData.roundId;
-    update(roomRef(), { status: "guessing" }).catch(e => { advancingRoundId = null; console.error(e); });
+
+  if (isHost) {
+    // 全員提出済みで予想フェーズへ（ホストが進行）
+    if (allSubmitted && advancingRoundId !== roomData.roundId) {
+      advancingRoundId = roomData.roundId;
+      update(roomRef(), { status: "guessing" }).catch(e => { advancingRoundId = null; console.error(e); });
+    }
+    // 書いている画家が残り1人になったら30秒の制限時間をスタート
+    // （画家が最初から1人だけの2人プレイでは、制限時間は設けない）
+    const painterCount = new Set(sheetKeys.map(k => sheets[k].ownerId)).size;
+    const pendingOwners = new Set(sheetKeys.filter(k => !sheets[k].submitted).map(k => sheets[k].ownerId));
+    if (painterCount >= 2 && pendingOwners.size === 1 && !roomData.drawDeadline && deadlineSetRound !== roomData.roundId) {
+      deadlineSetRound = roomData.roundId;
+      update(roomRef(), { drawDeadline: serverNow() + DRAW_LIMIT_MS })
+        .catch(e => { deadlineSetRound = null; console.error(e); });
+    }
   }
 
   $("captain-wait-view").classList.toggle("hidden", !isCaptain);
@@ -748,13 +795,14 @@ function renderDraw(ids, isCaptain, isHost) {
       row.appendChild(el("span", "badge " + (finished ? "badge-done" : "badge-wait"), finished ? "提出完了！" : "描画中..."));
       list.appendChild(row);
     });
+    tickDrawTimer();
     return;
   }
 
   // ---- 画家画面 ----
   const ctxInfo = currentSheetCtx();
   if (!ctxInfo) return;
-  const { sheet, state, submitted, mine } = ctxInfo;
+  const { sheet, mine } = ctxInfo;
 
   const tabsEl = $("sheet-tabs");
   tabsEl.innerHTML = "";
@@ -763,7 +811,7 @@ function renderDraw(ids, isCaptain, isHost) {
       const done = roomData.sheets[sid].submitted ? " ✓" : "";
       const b = el("button", "", `担当シート ${idx + 1}${done}`);
       b.style.background = idx === activeSheetIndex ? "var(--accent)" : "#64748b";
-      b.addEventListener("click", () => { activeSheetIndex = idx; previewPos = centerOf(state.orientation); updateUI(); });
+      b.addEventListener("click", () => switchSheetTo(idx));
       tabsEl.appendChild(b);
     });
   }
@@ -779,22 +827,70 @@ function renderDraw(ids, isCaptain, isHost) {
   });
 
   $("my-word").textContent = sheet.word;
+  syncDrawControls();
+  tickDrawTimer();
+}
+
+function switchSheetTo(idx) {
+  const c = currentSheetCtx();
+  if (!c || idx < 0 || idx >= c.mine.length || idx === activeSheetIndex) return;
+  activeSheetIndex = idx;
+  selectedIdx = -1;
+  const n = currentSheetCtx();
+  previewPos = centerOf(n ? n.state.orientation : "landscape");
+  updateUI();
+}
+
+// ボタンの有効/無効・文言・キャンバスを現在の状態に合わせる
+function syncDrawControls() {
+  const c = currentSheetCtx();
+  if (!c) return;
+  const { state, submitted } = c;
   const limit = stampLimit(roomData.round);
   const remaining = Math.max(0, limit - state.stamps.length);
+  if (selectedIdx >= state.stamps.length) selectedIdx = -1;
   $("remaining-stamps").textContent = remaining;
+
+  const isSelect = toolMode === "select";
+  $("row-stamp-actions").classList.toggle("hidden", isSelect);
+  $("row-select-actions").classList.toggle("hidden", !isSelect);
+  $("btn-mode-toggle").textContent = isSelect ? "📌押す" : "👆選択";
+  drawCanvas.style.cursor = isSelect ? "pointer" : "crosshair";
 
   const commitBtn = $("btn-stamp-commit");
   commitBtn.disabled = submitted || remaining <= 0;
   commitBtn.textContent = submitted
-    ? "提出済みです"
+    ? "提出済み"
     : remaining <= 0
-      ? "上限回数に達しました（「1つ戻す」でやり直せます）"
-      : `📌 ここにスタンプを押す！（残り ${remaining} 回）`;
+      ? "上限です（↩/消すでやり直し）"
+      : `📌 押す！（残り${remaining}回）`;
 
-  ["btn-rotate-sheet", "btn-undo", "btn-clear"].forEach(id => { $(id).disabled = submitted; });
+  const hasSel = selectedIdx >= 0 && !submitted;
+  $("btn-erase").disabled = !hasSel;
+  $("btn-layer-up").disabled = !hasSel || selectedIdx >= state.stamps.length - 1;
+  $("btn-layer-down").disabled = !hasSel || selectedIdx <= 0;
+  $("btn-layer-front").disabled = $("btn-layer-up").disabled;
+  $("btn-layer-back").disabled = $("btn-layer-down").disabled;
+  $("btn-undo").disabled = submitted || state.undo.length === 0;
+  $("btn-redo").disabled = submitted || state.redo.length === 0;
+  $("btn-clear").disabled = submitted || state.stamps.length === 0;
+  $("btn-rotate-sheet").disabled = submitted;
+  $("btn-mode-toggle").disabled = submitted;
+
   const submitBtn = $("btn-submit-sheet");
   submitBtn.disabled = submitted;
   submitBtn.textContent = submitted ? "提出済み（他の人を待っています）" : "✅ 完成！このシートを提出する";
+
+  const hint = $("draw-hint");
+  if (submitted) {
+    hint.textContent = "このシートは提出済みです。";
+  } else if (isSelect) {
+    hint.textContent = selectedIdx >= 0
+      ? `選択中：${STAMP_LABELS[state.stamps[selectedIdx].type]}（下から${selectedIdx + 1}番目／全${state.stamps.length}個）。🧽で消す・⬆⬇で重なり順を変えられます。`
+      : "消したい・重なり順を変えたいスタンプを、キャンバス上でタップして選んでください。";
+  } else {
+    hint.textContent = "キャンバスをタップ/ドラッグで仮置き → 「押す！」で確定。端からのはみ出し押しもOK。（PC：ホイール回転／ダブルクリックで押印）";
+  }
 
   redrawActiveCanvas();
 }
@@ -803,6 +899,10 @@ function redrawActiveCanvas() {
   const c = currentSheetCtx();
   if (!c) return;
   const { state, submitted } = c;
+  if (toolMode === "select" && !submitted) {
+    renderSheetWithSelection(drawCanvas, state, selectedIdx);
+    return;
+  }
   const canStamp = !submitted && state.stamps.length < stampLimit(roomData.round);
   const ghost = canStamp
     ? { type: selectedStampType, x: previewPos.x, y: previewPos.y, angle: currentAngle }
@@ -810,15 +910,142 @@ function redrawActiveCanvas() {
   renderSheetToCanvas(drawCanvas, state, ghost);
 }
 
-// スタンプ種類
-document.querySelectorAll(".stamp-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".stamp-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    selectedStampType = btn.dataset.type;
-    redrawActiveCanvas();
+// ---- 履歴（戻す／進む）----
+const snapOf = (st) => ({ stamps: st.stamps.map(s => ({ ...s })), orientation: st.orientation });
+
+// 変更を加える共通処理：変更前の状態を履歴に積み、「進む」履歴を破棄する
+function edit(c, mutate) {
+  const st = c.state;
+  st.undo.push(snapOf(st));
+  if (st.undo.length > HISTORY_LIMIT) st.undo.shift();
+  st.redo = [];
+  mutate(st);
+  saveDraft(c.rsKey);
+  updateUI();
+}
+
+function restoreSnap(st, snap) {
+  const prevOrient = st.orientation;
+  st.stamps = snap.stamps;
+  st.orientation = snap.orientation;
+  if (prevOrient !== st.orientation) previewPos = centerOf(st.orientation);
+  selectedIdx = -1;
+}
+
+function doUndo() {
+  const c = editableCtx();
+  if (!c || c.state.undo.length === 0) return;
+  c.state.redo.push(snapOf(c.state));
+  restoreSnap(c.state, c.state.undo.pop());
+  saveDraft(c.rsKey);
+  updateUI();
+}
+
+function doRedo() {
+  const c = editableCtx();
+  if (!c || c.state.redo.length === 0) return;
+  c.state.undo.push(snapOf(c.state));
+  restoreSnap(c.state, c.state.redo.pop());
+  saveDraft(c.rsKey);
+  updateUI();
+}
+
+// ---- スタンプ操作 ----
+function setStampType(type) {
+  selectedStampType = type;
+  document.querySelectorAll(".stamp-btn").forEach(b => b.classList.toggle("active", b.dataset.type === type));
+  redrawActiveCanvas();
+}
+
+function setToolMode(mode) {
+  if (!editableCtx()) return;
+  toolMode = mode;
+  selectedIdx = -1;
+  syncDrawControls();
+}
+
+function commitStamp() {
+  const c = editableCtx();
+  if (!c || toolMode !== "stamp") return;
+  if (c.state.stamps.length >= stampLimit(roomData.round)) return;
+  edit(c, st => {
+    st.stamps.push({
+      type: selectedStampType,
+      x: Math.round(previewPos.x),
+      y: Math.round(previewPos.y),
+      angle: currentAngle
+    });
   });
-});
+}
+
+// 消しゴム：選択中のスタンプを消す（消した分、押せる回数が戻る）
+function eraseSelected() {
+  const c = editableCtx();
+  if (!c || selectedIdx < 0 || selectedIdx >= c.state.stamps.length) return;
+  const idx = selectedIdx;
+  edit(c, st => { st.stamps.splice(idx, 1); selectedIdx = -1; });
+}
+
+// レイヤー操作：up/down＝1つ前面/背面、front/back＝最前面/最背面（配列の後ろほど前面）
+function moveLayer(how) {
+  const c = editableCtx();
+  if (!c) return;
+  const len = c.state.stamps.length;
+  const i = selectedIdx;
+  if (i < 0 || i >= len) return;
+  const j = how === "up" ? Math.min(len - 1, i + 1)
+    : how === "down" ? Math.max(0, i - 1)
+    : how === "front" ? len - 1
+    : 0;
+  if (j === i) return;
+  edit(c, st => {
+    const [s] = st.stamps.splice(i, 1);
+    st.stamps.splice(j, 0, s);
+    selectedIdx = j;
+  });
+}
+
+// 選択をキーボードで順送り（履歴には積まない）
+function cycleSelect(dir) {
+  const c = editableCtx();
+  if (!c || toolMode !== "select") return;
+  const len = c.state.stamps.length;
+  if (len === 0) return;
+  selectedIdx = selectedIdx < 0
+    ? (dir > 0 ? 0 : len - 1)
+    : (selectedIdx + dir + len) % len;
+  syncDrawControls();
+}
+
+function rotateSheet() {
+  const c = editableCtx();
+  if (!c) return;
+  const from = c.state.orientation;
+  const to = from === "landscape" ? "portrait" : "landscape";
+  previewPos = clampPreview(rotatePoint(previewPos, from), to);
+  edit(c, st => {
+    st.stamps = rotateStamps(st.stamps, from);
+    st.orientation = to;
+  });
+}
+
+function clearAll() {
+  const c = editableCtx();
+  if (!c || c.state.stamps.length === 0) return;
+  edit(c, st => { st.stamps = []; selectedIdx = -1; });
+}
+
+function nudge(dx, dy, step) {
+  const c = currentSheetCtx();
+  if (!c) return;
+  previewPos = clampPreview({ x: previewPos.x + dx * step, y: previewPos.y + dy * step }, c.state.orientation);
+  redrawActiveCanvas();
+}
+
+function currentStep() {
+  const stepRadio = document.querySelector('input[name="step-size"]:checked');
+  return stepRadio ? parseInt(stepRadio.value, 10) : 8;
+}
 
 // 回転
 const angleSlider = $("angle-slider");
@@ -830,7 +1057,20 @@ function setAngle(a) {
   angleVal.textContent = currentAngle;
   redrawActiveCanvas();
 }
+
+// ---- ボタン・ポインタのイベント ----
+document.querySelectorAll(".stamp-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (toolMode === "select") toolMode = "stamp";
+    selectedIdx = -1;
+    setStampType(btn.dataset.type);
+    syncDrawControls();
+  });
+});
+
 angleSlider.addEventListener("input", (e) => setAngle(parseInt(e.target.value, 10)));
+angleSlider.addEventListener("change", () => angleSlider.blur());
+document.querySelectorAll('input[name="step-size"]').forEach(r => r.addEventListener("change", () => r.blur()));
 document.querySelectorAll(".btn-angle-step").forEach(btn => {
   btn.addEventListener("click", () => setAngle(currentAngle + parseInt(btn.dataset.da, 10)));
 });
@@ -839,22 +1079,13 @@ drawCanvas.addEventListener("wheel", (e) => {
   setAngle(currentAngle + (e.deltaY > 0 ? 5 : -5));
 }, { passive: false });
 
-// 十字キー
 document.querySelectorAll(".dpad-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-    const c = currentSheetCtx();
-    if (!c) return;
-    const stepRadio = document.querySelector('input[name="step-size"]:checked');
-    const step = stepRadio ? parseInt(stepRadio.value, 10) : 8;
-    previewPos = clampPreview({
-      x: previewPos.x + parseInt(btn.dataset.dx, 10) * step,
-      y: previewPos.y + parseInt(btn.dataset.dy, 10) * step
-    }, c.state.orientation);
-    redrawActiveCanvas();
+    nudge(parseInt(btn.dataset.dx, 10), parseInt(btn.dataset.dy, 10), currentStep());
   });
 });
 
-// キャンバス上のタップ・ドラッグで仮置き位置を移動
+// キャンバス上のタップ・ドラッグ：スタンプモード＝仮置き移動／選択モード＝スタンプ選択
 function getCanvasCoords(e) {
   const rect = drawCanvas.getBoundingClientRect();
   return {
@@ -871,82 +1102,208 @@ function movePreviewTo(e) {
 }
 
 drawCanvas.addEventListener("pointerdown", (e) => {
+  const c = currentSheetCtx();
+  if (!c) return;
+  if (toolMode === "select" && !c.submitted) {
+    const p = getCanvasCoords(e);
+    selectedIdx = findStampAt(c.state.stamps, p.x, p.y);
+    syncDrawControls();
+    return;
+  }
   isDraggingPreview = true;
   try { drawCanvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   movePreviewTo(e);
 });
 drawCanvas.addEventListener("pointermove", (e) => {
+  if (toolMode !== "stamp") return;
   if (isDraggingPreview || e.pointerType === "mouse") movePreviewTo(e);
 });
 window.addEventListener("pointerup", () => { isDraggingPreview = false; });
 window.addEventListener("pointercancel", () => { isDraggingPreview = false; });
 
-// スタンプ確定
-function commitStamp() {
-  const c = currentSheetCtx();
-  if (!c || c.submitted) return;
-  if (c.state.stamps.length >= stampLimit(roomData.round)) return;
-  c.state.stamps.push({
-    type: selectedStampType,
-    x: Math.round(previewPos.x),
-    y: Math.round(previewPos.y),
-    angle: currentAngle
-  });
-  saveDraft(c.rsKey);
-  updateUI();
-}
 $("btn-stamp-commit").addEventListener("click", commitStamp);
 drawCanvas.addEventListener("dblclick", commitStamp);
+$("btn-mode-toggle").addEventListener("click", () => setToolMode(toolMode === "stamp" ? "select" : "stamp"));
+$("btn-erase").addEventListener("click", eraseSelected);
+$("btn-layer-up").addEventListener("click", () => moveLayer("up"));
+$("btn-layer-down").addEventListener("click", () => moveLayer("down"));
+$("btn-layer-front").addEventListener("click", () => moveLayer("front"));
+$("btn-layer-back").addEventListener("click", () => moveLayer("back"));
+$("btn-rotate-sheet").addEventListener("click", rotateSheet);
+$("btn-undo").addEventListener("click", doUndo);
+$("btn-redo").addEventListener("click", doRedo);
+$("btn-clear").addEventListener("click", clearAll);
 
-// シート縦横切替（紙ごと90度回転。描いた内容も一緒に回る）
-$("btn-rotate-sheet").addEventListener("click", () => {
-  const c = currentSheetCtx();
-  if (!c || c.submitted) return;
-  const from = c.state.orientation;
-  c.state.stamps = rotateStamps(c.state.stamps, from);
-  previewPos = clampPreview(rotatePoint(previewPos, from), from === "landscape" ? "portrait" : "landscape");
-  c.state.orientation = from === "landscape" ? "portrait" : "landscape";
-  saveDraft(c.rsKey);
-  updateUI();
+// ボタンを押した後にフォーカスが残ると、Space/Enter のキー操作と二重に反応するため外す
+$("painter-draw-view").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b) b.blur();
 });
 
-$("btn-undo").addEventListener("click", () => {
-  const c = currentSheetCtx();
-  if (!c || c.submitted) return;
-  c.state.stamps.pop();
-  saveDraft(c.rsKey);
-  updateUI();
+// ---- キーボード操作（PC）----
+let swallowSpaceKeyup = false;
+
+function isTypingTarget(t) {
+  if (!t) return false;
+  const tag = t.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.isComposing || isTypingTarget(e.target)) return;
+  if ($("painter-draw-view").classList.contains("hidden")) return;
+  const c = editableCtx();
+  if (!c) return;
+
+  const k = e.code;
+  const ctrl = e.ctrlKey || e.metaKey;
+  let handled = true;
+
+  if (ctrl) {
+    if (k === "KeyZ") { e.shiftKey ? doRedo() : doUndo(); }
+    else if (k === "KeyY") doRedo();
+    else if (k === "Enter" || k === "NumpadEnter") $("btn-submit-sheet").click();
+    else handled = false;
+  } else if (e.altKey) {
+    handled = false;
+  } else if (toolMode === "select" && ["[", "]", "{", "}"].includes(e.key)) {
+    // レイヤー操作（Shift併用で最前面/最背面）
+    if (e.key === "]") moveLayer("up");
+    else if (e.key === "[") moveLayer("down");
+    else if (e.key === "}") moveLayer("front");
+    else moveLayer("back");
+  } else {
+    switch (k) {
+      case "Space": case "Enter": case "NumpadEnter":
+        if (toolMode === "stamp") { commitStamp(); if (k === "Space") swallowSpaceKeyup = true; }
+        else handled = false;
+        break;
+      case "Digit1": case "Numpad1": toolMode = "stamp"; selectedIdx = -1; setStampType("circle"); syncDrawControls(); break;
+      case "Digit2": case "Numpad2": toolMode = "stamp"; selectedIdx = -1; setStampType("square"); syncDrawControls(); break;
+      case "Digit3": case "Numpad3": toolMode = "stamp"; selectedIdx = -1; setStampType("triangle"); syncDrawControls(); break;
+      case "Digit4": case "Numpad4": toolMode = "stamp"; selectedIdx = -1; setStampType("bar"); syncDrawControls(); break;
+      case "ArrowLeft": if (toolMode === "stamp") nudge(-1, 0, e.shiftKey ? 2 : currentStep()); else handled = false; break;
+      case "ArrowRight": if (toolMode === "stamp") nudge(1, 0, e.shiftKey ? 2 : currentStep()); else handled = false; break;
+      case "ArrowUp": if (toolMode === "stamp") nudge(0, -1, e.shiftKey ? 2 : currentStep()); else handled = false; break;
+      case "ArrowDown": if (toolMode === "stamp") nudge(0, 1, e.shiftKey ? 2 : currentStep()); else handled = false; break;
+      case "KeyQ": setAngle(currentAngle - 45); break;
+      case "KeyW": setAngle(currentAngle + 45); break;
+      case "KeyA": setAngle(currentAngle - 15); break;
+      case "KeyS": setAngle(currentAngle + 15); break;
+      case "KeyZ": setAngle(currentAngle - 5); break;
+      case "KeyX": setAngle(currentAngle + 5); break;
+      case "KeyC": setAngle(currentAngle - 1); break;
+      case "KeyV": setAngle(currentAngle + 1); break;
+      case "KeyT": rotateSheet(); break;
+      case "KeyE": setToolMode(toolMode === "stamp" ? "select" : "stamp"); break;
+      case "Delete":
+        if (e.shiftKey) clearAll();
+        else if (toolMode === "select") eraseSelected();
+        else handled = false;
+        break;
+      case "Backspace":
+        if (toolMode === "select") eraseSelected(); else handled = false;
+        break;
+      case "Comma": cycleSelect(-1); handled = toolMode === "select"; break;
+      case "Period": cycleSelect(1); handled = toolMode === "select"; break;
+      case "PageUp": switchSheetTo(activeSheetIndex - 1); break;
+      case "PageDown": switchSheetTo(activeSheetIndex + 1); break;
+      default: handled = false;
+    }
+  }
+  if (handled) e.preventDefault();
 });
 
-$("btn-clear").addEventListener("click", () => {
-  const c = currentSheetCtx();
-  if (!c || c.submitted) return;
-  if (c.state.stamps.length === 0) return;
-  c.state.stamps = [];
-  saveDraft(c.rsKey);
-  updateUI();
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Space" && swallowSpaceKeyup) {
+    swallowSpaceKeyup = false;
+    e.preventDefault();
+  }
 });
+
+// ---- 提出 ----
+async function submitSheet(sheetId, state) {
+  await update(ref(db, `rooms/${roomKey}/sheets/${sheetId}`), {
+    orientation: state.orientation,
+    stamps: state.stamps,
+    submitted: true
+  });
+}
 
 $("btn-submit-sheet").addEventListener("click", guard(async () => {
-  const c = currentSheetCtx();
-  if (!c || c.submitted) return;
+  const c = editableCtx();
+  if (!c) return;
   if (c.state.stamps.length === 0) {
     alert("スタンプを1つ以上押してから提出してください。");
     return;
   }
-  await update(ref(db, `rooms/${roomKey}/sheets/${c.sheetId}`), {
-    orientation: c.state.orientation,
-    stamps: c.state.stamps,
-    submitted: true
-  });
+  await submitSheet(c.sheetId, c.state);
   // 担当シートがまだ残っていれば次のシートへ
   const next = c.mine.findIndex(sid => !roomData.sheets[sid]?.submitted && sid !== c.sheetId);
   if (next >= 0) {
     activeSheetIndex = next;
+    selectedIdx = -1;
     previewPos = centerOf("landscape");
     updateUI();
   }
 }));
+
+// ---- 制限時間（画家が残り1人になってから30秒）----
+async function autoSubmitMine() {
+  const sheets = roomData.sheets || {};
+  const upd = {};
+  Object.keys(sheets).filter(k => sheets[k].ownerId === myId && !sheets[k].submitted).forEach(k => {
+    const { state } = stateForSheet(k);
+    upd[`${k}/orientation`] = state.orientation;
+    upd[`${k}/stamps`] = state.stamps;
+    upd[`${k}/submitted`] = true;
+  });
+  if (Object.keys(upd).length) await update(ref(db, `rooms/${roomKey}/sheets`), upd);
+}
+
+// 本人が切断中などで自動提出されない場合の保険：ホストが現状のまま強制提出する
+async function forceSubmitAll() {
+  const sheets = roomData.sheets || {};
+  const upd = {};
+  Object.keys(sheets).filter(k => !sheets[k].submitted).forEach(k => { upd[`${k}/submitted`] = true; });
+  if (Object.keys(upd).length) await update(ref(db, `rooms/${roomKey}/sheets`), upd);
+}
+
+function tickDrawTimer() {
+  const timers = document.querySelectorAll(".draw-timer");
+  const hide = () => timers.forEach(t => t.classList.add("hidden"));
+  if (!inRoom || !roomData || roomData.status !== "drawing" || !roomData.drawDeadline) { hide(); return; }
+
+  const sheets = roomData.sheets || {};
+  const pending = [...new Set(Object.keys(sheets).filter(k => !sheets[k].submitted).map(k => sheets[k].ownerId))];
+  if (pending.length === 0) { hide(); return; }
+
+  const now = serverNow();
+  const dl = roomData.drawDeadline;
+  const remain = Math.max(0, Math.ceil((dl - now) / 1000));
+  const mePending = pending.includes(myId);
+  const text = mePending
+    ? `⏰ あなたが最後の一人です！ あと ${remain} 秒で自動提出されます`
+    : `⏰ ${pending.map(nameOf).join("、")} さんが作成中…（あと ${remain} 秒で自動提出）`;
+  timers.forEach(t => {
+    t.textContent = text;
+    t.classList.remove("hidden");
+    t.classList.toggle("urgent", remain <= 10);
+  });
+
+  if (now >= dl) {
+    const rid = roomData.roundId;
+    if (mePending && autoSubmittedRound !== rid) {
+      autoSubmittedRound = rid;
+      autoSubmitMine().catch(e => { console.error(e); setTimeout(() => { autoSubmittedRound = null; }, 2000); });
+    }
+    if (roomData.hostId === myId && now >= dl + 4000 && forcedRound !== rid) {
+      forcedRound = rid;
+      forceSubmitAll().catch(e => { console.error(e); setTimeout(() => { forcedRound = null; }, 2000); });
+    }
+  }
+}
+setInterval(tickDrawTimer, 250);
 
 // ---------------- 予想 ----------------
 async function assignGuess(sheetKey, word) {

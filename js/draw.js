@@ -94,3 +94,76 @@ export function rotateStamps(stamps, fromOrient) {
     };
   });
 }
+
+// ---- スタンプの当たり判定・選択表示（選択モード／消しゴム／レイヤー操作用） ----
+
+// スタンプのローカル座標系（中心が原点・回転前）での当たり判定。tol は許容の余白(px)
+function hitLocal(type, lx, ly, tol) {
+  if (type === "circle") return lx * lx + ly * ly <= (28 + tol) * (28 + tol);
+  if (type === "square") return Math.abs(lx) <= 26 + tol && Math.abs(ly) <= 26 + tol;
+  if (type === "bar") return Math.abs(lx) <= 7 + tol && Math.abs(ly) <= 38 + tol;
+  if (type === "triangle") {
+    // 頂点 (0,-32) (30,24) (-30,24)。tol 分だけ外側に膨らませた簡易判定
+    if (ly > 24 + tol || ly < -32 - tol) return false;
+    const t = Math.max(0, Math.min(1, (ly + 32) / 56));
+    const half = 30 * t + tol;
+    return Math.abs(lx) <= half;
+  }
+  return false;
+}
+
+export function hitTestStamp(st, px, py, tol = 0) {
+  const rad = -((st.angle || 0) * Math.PI) / 180;
+  const dx = px - st.x;
+  const dy = py - st.y;
+  const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+  const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+  return hitLocal(st.type, lx, ly, tol);
+}
+
+// 最前面（配列の後ろ）から順に探す。細い棒も指で選べるよう、見つからなければ許容を広げて再探索
+export function findStampAt(stamps, px, py) {
+  for (const tol of [0, 10, 18]) {
+    for (let i = stamps.length - 1; i >= 0; i--) {
+      if (hitTestStamp(stamps[i], px, py, tol)) return i;
+    }
+  }
+  return -1;
+}
+
+function drawSelectionOutline(ctx, st) {
+  ctx.save();
+  ctx.translate(st.x, st.y);
+  ctx.rotate(((st.angle || 0) * Math.PI) / 180);
+  const pad = 4;
+  const trace = () => {
+    ctx.beginPath();
+    if (st.type === "circle") ctx.arc(0, 0, 28 + pad, 0, Math.PI * 2);
+    else if (st.type === "square") ctx.rect(-26 - pad, -26 - pad, 52 + pad * 2, 52 + pad * 2);
+    else if (st.type === "bar") ctx.rect(-7 - pad, -38 - pad, 14 + pad * 2, 76 + pad * 2);
+    else if (st.type === "triangle") {
+      ctx.moveTo(0, -32 - pad * 1.6);
+      ctx.lineTo(30 + pad * 1.6, 24 + pad);
+      ctx.lineTo(-30 - pad * 1.6, 24 + pad);
+      ctx.closePath();
+    }
+  };
+  trace();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 5;
+  ctx.setLineDash([]);
+  ctx.stroke();
+  trace();
+  ctx.strokeStyle = "#ec4899";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([6, 4]);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// selectedIdx に該当するスタンプの周囲に選択枠を描く
+export function renderSheetWithSelection(canvas, sheetObj, selectedIdx) {
+  renderSheetToCanvas(canvas, sheetObj, null);
+  const st = (sheetObj.stamps || [])[selectedIdx];
+  if (st) drawSelectionOutline(canvas.getContext("2d"), st);
+}

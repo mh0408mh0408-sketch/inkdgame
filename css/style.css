@@ -111,3 +111,49 @@ select.guess-select { width: 100%; padding: 8px; font-size: 1rem; border-radius:
 .word-chip.pickable { cursor: pointer; user-select: none; }
 .word-chip.picked { background: #fde68a; outline: 3px solid #f59e0b; }
 .sheet-card.drop-over { border-color: var(--accent); background: #eef2ff; }
+
+/* ===== お絵かき画面：絵を見たまま操作できる固定レイアウト（スマホ対応） ===== */
+.draw-sticky { position: sticky; top: 0; z-index: 20; background: var(--card); padding: 2px 0 6px; box-shadow: 0 8px 8px -8px rgba(0,0,0,0.35); }
+.draw-head { font-size: 1.05rem; font-weight: bold; margin: 2px 0; }
+.draw-head #my-word { color: var(--accent); font-size: 1.25rem; }
+.draw-remain { margin-left: 8px; font-size: 0.9rem; }
+.draw-remain strong { font-size: 1.2rem; color: var(--red); }
+.draw-sticky .canvas-wrapper { margin: 2px auto 4px; padding: 6px; }
+canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 38vh; }
+.draw-sticky #sheet-tabs:empty { display: none; }
+.draw-sticky #sheet-tabs { margin-bottom: 2px; }
+.draw-sticky #sheet-tabs button { padding: 4px 10px; font-size: 0.8rem; margin: 2px; }
+
+.quick-row { display: flex; gap: 4px; justify-content: center; align-items: stretch; margin: 4px auto; max-width: 460px; }
+.quick-row .qbtn { flex: 1; margin: 0; padding: 9px 2px; font-size: 0.8rem; min-width: 0; white-space: nowrap; }
+.quick-row .stamp-btn { flex: 1; margin: 0; padding: 6px 2px; font-size: 0.78rem; justify-content: center; gap: 3px; min-width: 0; }
+.quick-row .stamp-btn.active { transform: none; }
+.quick-row .stamp-confirm { flex: 1; width: auto; max-width: none; margin: 0; padding: 10px 6px; font-size: 1.05rem; }
+.quick-row .btn-angle-step { background: #475569; }
+.quick-row button:disabled { opacity: 0.55; }
+
+.draw-scroll { padding-top: 6px; }
+
+/* タイマー */
+.draw-timer { background: #fef3c7; border: 2px solid #f59e0b; color: #92400e; border-radius: 8px; padding: 4px 8px; font-weight: bold; font-size: 0.9rem; margin: 3px auto; }
+.draw-timer.urgent { background: #fee2e2; border-color: #dc2626; color: #991b1b; animation: timer-blink 0.8s infinite alternate; }
+@keyframes timer-blink { from { opacity: 1; } to { opacity: 0.6; } }
+
+/* キーボード操作一覧 */
+.key-help { margin: 12px auto 0; max-width: 560px; text-align: left; font-size: 0.85rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 10px; }
+.key-help summary { cursor: pointer; font-weight: bold; }
+.key-help table { border-collapse: collapse; margin-top: 6px; width: 100%; }
+.key-help th, .key-help td { border-top: 1px solid #e2e8f0; padding: 3px 6px; text-align: left; vertical-align: top; }
+kbd { background: #e2e8f0; border: 1px solid #94a3b8; border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-family: monospace; font-size: 0.85em; }
+
+#btn-rotate-sheet { flex: 1.5; }
+
+/* スマホ：ヘッダーを小さくして、絵と操作ボタンが一画面に収まるようにする */
+@media (max-width: 600px) {
+  body { padding: 6px; }
+  h1 { font-size: 1.15rem; margin: 2px 0 6px; }
+  .status-bar { padding: 4px; font-size: 0.78rem; margin-bottom: 6px; }
+  .status-item { margin: 1px 6px; }
+  .card { padding: 10px; }
+  .room-actions { margin-bottom: 4px; }
+}
