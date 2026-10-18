@@ -687,6 +687,7 @@ const NUDGE_FINE = 2;
 //         layer＝レイヤー（図形をタップして選び、前へ/後ろへボタンで重なり順を変更）
 let toolMode = "stamp";
 let selectedIdx = -1;    // レイヤーで選んでいる図形の番号（配列の後ろほど前面）
+let nudgeFineMode = false; // 位置微調整の移動幅（false=標準8px / true=細かく2px）
 let autoSubmittedRound = null;
 let forcedRound = null;
 let deadlineSetRound = null;
@@ -788,17 +789,21 @@ function renderDraw(ids, isCaptain, isHost) {
   $("captain-wait-view").classList.toggle("hidden", !isCaptain);
   $("painter-draw-view").classList.toggle("hidden", isCaptain);
 
+  // 画家ごとの提出状況（シート番号とは紐付けない）
+  const owners = ids.filter(id => sheetKeys.some(k => sheets[k].ownerId === id));
+  const progressRows = owners.map(id => {
+    const mineKeys = sheetKeys.filter(k => sheets[k].ownerId === id);
+    const done = mineKeys.filter(k => sheets[k].submitted).length;
+    return { id, name: nameOf(id), total: mineKeys.length, done };
+  });
+
   if (isCaptain) {
-    // 画家ごとの提出状況（シート番号とは紐付けない）
-    const owners = ids.filter(id => sheetKeys.some(k => sheets[k].ownerId === id));
     const list = $("draw-progress-list");
     list.innerHTML = "";
-    owners.forEach(id => {
-      const mineKeys = sheetKeys.filter(k => sheets[k].ownerId === id);
-      const done = mineKeys.filter(k => sheets[k].submitted).length;
-      const row = el("div", "", `${nameOf(id)}${mineKeys.length > 1 ? `（${done}/${mineKeys.length}枚）` : ""}`);
+    progressRows.forEach(r => {
+      const row = el("div", "", `${r.name}${r.total > 1 ? `（${r.done}/${r.total}枚）` : ""}`);
       row.style.cssText = "margin: 8px 0; font-size: 1.1rem;";
-      const finished = done === mineKeys.length;
+      const finished = r.done === r.total;
       row.appendChild(el("span", "badge " + (finished ? "badge-done" : "badge-wait"), finished ? "提出完了！" : "描画中..."));
       list.appendChild(row);
     });
@@ -807,6 +812,15 @@ function renderDraw(ids, isCaptain, isHost) {
   }
 
   // ---- 画家画面 ----
+  const prog = $("painter-progress");
+  prog.innerHTML = "";
+  progressRows.forEach(r => {
+    const finished = r.done === r.total;
+    const item = el("span", "prog-item", `${r.name}${r.total > 1 ? `(${r.done}/${r.total})` : ""}`);
+    item.appendChild(el("span", "badge " + (finished ? "badge-done" : "badge-wait"), finished ? "提出済" : "作成中"));
+    prog.appendChild(item);
+  });
+
   const ctxInfo = currentSheetCtx();
   if (!ctxInfo) return;
   const { sheet, mine } = ctxInfo;
@@ -885,10 +899,15 @@ function syncDrawControls() {
       ? "上限です（↩や🧽でやり直し）"
       : `📌 押す！（残り${remaining}回）`;
 
-  // 行3・4
+  // 行3・位置微調整・行4
   $("btn-undo").disabled = submitted || state.undo.length === 0;
   $("btn-redo").disabled = submitted || state.redo.length === 0;
   $("btn-rotate-sheet").disabled = submitted;
+  document.querySelectorAll(".dpad-btn").forEach(b => { b.disabled = submitted; });
+  const stepBtn = $("btn-nudge-step");
+  stepBtn.disabled = submitted;
+  stepBtn.classList.toggle("active", nudgeFineMode);
+  stepBtn.textContent = nudgeFineMode ? "幅:細2px" : "幅:標準";
   const submitBtn = $("btn-submit-sheet");
   submitBtn.disabled = submitted;
   submitBtn.textContent = submitted ? "提出済み（他の人を待っています）" : "✅ 完成！このシートを提出する";
@@ -1040,9 +1059,20 @@ function clearAll() {
   edit(c, st => { st.stamps = []; selectedIdx = -1; });
 }
 
+function currentStep() {
+  return nudgeFineMode ? NUDGE_FINE : NUDGE_STEP;
+}
+
 function nudge(dx, dy, step) {
   const c = currentSheetCtx();
-  if (!c) return;
+  if (!c || c.submitted) return;
+  if (toolMode !== "stamp") {
+    toolMode = "stamp";
+    selectedIdx = -1;
+    previewPos = clampPreview({ x: previewPos.x + dx * step, y: previewPos.y + dy * step }, c.state.orientation);
+    syncDrawControls();
+    return;
+  }
   previewPos = clampPreview({ x: previewPos.x + dx * step, y: previewPos.y + dy * step }, c.state.orientation);
   redrawActiveCanvas();
 }
@@ -1072,6 +1102,17 @@ drawCanvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   setAngle(currentAngle + (e.deltaY > 0 ? 5 : -5));
 }, { passive: false });
+
+// 位置の微調整ボタン（⬅️ ⬆️ ⬇️ ➡️）と移動幅切替（標準8px ⇔ 細かく2px）
+document.querySelectorAll(".dpad-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    nudge(parseInt(btn.dataset.dx, 10), parseInt(btn.dataset.dy, 10), currentStep());
+  });
+});
+$("btn-nudge-step").addEventListener("click", () => {
+  nudgeFineMode = !nudgeFineMode;
+  syncDrawControls();
+});
 
 // キャンバス上のタップ・ドラッグ
 //   スタンプ：仮置き位置を移動／消しゴム：タップした図形を消す／レイヤー：タップした図形を選ぶ
@@ -1145,7 +1186,7 @@ document.addEventListener("keydown", (e) => {
 
   const k = e.code;
   const ctrl = e.ctrlKey || e.metaKey;
-  const step = e.shiftKey ? NUDGE_FINE : NUDGE_STEP;
+  const step = e.shiftKey ? NUDGE_FINE : currentStep();
   let handled = true;
 
   if (ctrl) {

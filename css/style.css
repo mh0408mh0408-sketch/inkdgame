@@ -107,16 +107,16 @@ select.guess-select { width: 100%; padding: 8px; font-size: 1rem; border-radius:
 .draw-remain { margin-left: 8px; font-size: 0.9rem; }
 .draw-remain strong { font-size: 1.2rem; color: var(--red); }
 .draw-sticky .canvas-wrapper { margin: 2px auto 4px; padding: 6px; }
-canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 30vh; }
+canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 27vh; }
 .draw-sticky #sheet-tabs:empty { display: none; }
 .draw-sticky #sheet-tabs { margin-bottom: 2px; }
 .draw-sticky #sheet-tabs button { padding: 4px 10px; font-size: 0.8rem; margin: 2px; }
 
-.quick-row { display: flex; gap: 4px; justify-content: center; align-items: stretch; margin: 4px auto; max-width: 460px; }
-.quick-row .qbtn { flex: 1; margin: 0; padding: 9px 2px; font-size: 0.8rem; min-width: 0; white-space: nowrap; }
+.quick-row { display: flex; gap: 4px; justify-content: center; align-items: stretch; margin: 3px auto; max-width: 460px; }
+.quick-row .qbtn { flex: 1; margin: 0; padding: 8px 2px; font-size: 0.8rem; min-width: 0; white-space: nowrap; }
 .quick-row .stamp-btn { flex: 1; margin: 0; padding: 6px 2px; font-size: 0.78rem; justify-content: center; gap: 3px; min-width: 0; }
 .quick-row .stamp-btn.active { transform: none; }
-.quick-row .stamp-confirm { flex: 1; width: auto; max-width: none; margin: 0; padding: 10px 6px; font-size: 1.05rem; }
+.quick-row .stamp-confirm { flex: 1; width: auto; max-width: none; margin: 0; padding: 9px 6px; font-size: 1.05rem; }
 .quick-row .btn-angle-step { background: #475569; }
 .quick-row button:disabled { opacity: 0.55; }
 
@@ -143,10 +143,10 @@ canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 30v
 .in-game h1 { display: none; }
 .draw-angle { margin-left: 8px; font-size: 0.8rem; color: #475569; }
 .quick-row .tool-btn { font-size: 0.72rem; }
-.ctx-row { min-height: 44px; }
+.ctx-row { min-height: 40px; }
 .ctx-block { display: flex; flex: 1; gap: 4px; align-items: stretch; min-width: 0; }
 .ctx-text { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.82rem; font-weight: bold; color: #334155; background: #f1f5f9; border: 2px dashed #94a3b8; border-radius: 8px; padding: 4px; }
-.quick-row .submit-btn { flex: 1; margin: 0; padding: 11px 8px; font-size: 1.02rem; background: #16a34a; }
+.quick-row .submit-btn { flex: 1; margin: 0; padding: 10px 8px; font-size: 1.0rem; background: #16a34a; }
 .quick-row .submit-btn:disabled { background: #94a3b8; }
 /* ツールボタンのラベルを折り返さない */
 .quick-row .stamp-btn { white-space: nowrap; font-size: 0.7rem; gap: 2px; padding: 6px 1px; }
@@ -165,3 +165,12 @@ canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 30v
 .angle-row { align-items: center; gap: 8px; margin: 2px auto; }
 .angle-label { font-size: 0.72rem; font-weight: bold; white-space: nowrap; color: #475569; }
 .angle-row input[type="range"] { flex: 1; min-width: 0; margin: 0; height: 24px; accent-color: var(--accent); }
+/* 位置の微調整バー */
+.nudge-row { align-items: center; }
+.nudge-row .dpad-btn { background: #334155; font-size: 0.9rem; padding: 6px 2px; }
+#btn-nudge-step { flex: 1.3; font-size: 0.72rem; padding: 6px 2px; }
+#btn-nudge-step.active { background: var(--accent); outline: 2px solid #0f172a; }
+/* 画家の進捗表示（誰が提出済か） */
+.painter-progress { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; font-size: 0.76rem; color: #334155; margin: 3px auto; max-width: 460px; }
+.painter-progress .prog-item { display: inline-flex; align-items: center; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 1px 6px; font-weight: bold; }
+.painter-progress .badge { font-size: 0.7rem; padding: 1px 6px; margin-left: 4px; }

@@ -82,7 +82,7 @@
         <select id="sel-word-mode">
           <option value="mix">カスタムと標準を半々でミックス（推奨）</option>
           <option value="custom">カスタム優先（足りなければ標準で補充）</option>
-          <option value="default">標準お題（100語）のみ</option>
+          <option value="default">標準お題（200語）のみ</option>
         </select>
       </div>
       <div style="margin-bottom: 14px;">
@@ -165,6 +165,20 @@
           <span class="angle-label">フリー回転</span>
           <input type="range" id="angle-slider" min="0" max="359" step="1" value="0" aria-label="フリー回転（角度）">
         </div>
+
+        <!-- 行3.8：位置の微調整（角度と提出済のあいだ） -->
+        <div class="quick-row nudge-row">
+          <span class="angle-label">位置微調整</span>
+          <button type="button" class="qbtn dpad-btn" data-dx="-1" data-dy="0" title="左へ移動 [←]">⬅️</button>
+          <button type="button" class="qbtn dpad-btn" data-dx="0" data-dy="-1" title="上へ移動 [↑]">⬆️</button>
+          <button type="button" class="qbtn dpad-btn" data-dx="0" data-dy="1" title="下へ移動 [↓]">⬇️</button>
+          <button type="button" class="qbtn dpad-btn" data-dx="1" data-dy="0" title="右へ移動 [→]">➡️</button>
+          <button type="button" id="btn-nudge-step" class="qbtn secondary" title="移動幅の切替（標準8px ⇔ 細かく2px）">幅:標準</button>
+        </div>
+
+        <!-- 誰が提出済か（書いている人にも表示） -->
+        <div id="painter-progress" class="painter-progress"></div>
+
         <!-- 行4：提出 -->
         <div class="quick-row">
           <button id="btn-submit-sheet" class="submit-btn" title="提出 [Ctrl+Enter]">✅ 完成！このシートを提出する</button>
