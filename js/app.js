@@ -676,6 +676,7 @@ function renderLobby(ids, isHost) {
 
 // ---------------- お絵かき ----------------
 const drawCanvas = $("draw-canvas");
+const angleSlider = $("angle-slider");
 
 const DRAW_LIMIT_MS = 30000;   // 画家が残り1人になってからの制限時間
 const HISTORY_LIMIT = 100;     // 戻す／進むの履歴の最大数
@@ -849,6 +850,8 @@ function syncDrawControls() {
   if (toolMode !== "layer") selectedIdx = -1;
   $("remaining-stamps").textContent = remaining;
   $("angle-val").textContent = currentAngle;
+  angleSlider.value = currentAngle;
+  angleSlider.disabled = submitted;
 
   // 行1：現在のツールをハイライト
   document.querySelectorAll(".stamp-btn[data-type]").forEach(b => {
@@ -1047,6 +1050,7 @@ function nudge(dx, dy, step) {
 function setAngle(a) {
   currentAngle = ((Math.round(a) % 360) + 360) % 360;
   $("angle-val").textContent = currentAngle;
+  angleSlider.value = currentAngle;
   redrawActiveCanvas();
 }
 
@@ -1060,6 +1064,10 @@ $("btn-tool-layer").addEventListener("click", () => toggleTool("layer"));
 document.querySelectorAll(".btn-angle-step").forEach(btn => {
   btn.addEventListener("click", () => setAngle(currentAngle + parseInt(btn.dataset.da, 10)));
 });
+// フリー回転バー（0〜359°を1°刻みで自由に回転）
+angleSlider.addEventListener("input", (e) => setAngle(parseInt(e.target.value, 10)));
+angleSlider.addEventListener("change", () => angleSlider.blur()); // バーにフォーカスが残るとキー操作が効かなくなるため外す
+angleSlider.addEventListener("pointerup", () => angleSlider.blur());
 drawCanvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   setAngle(currentAngle + (e.deltaY > 0 ? 5 : -5));
@@ -1125,6 +1133,7 @@ let swallowSpaceKeyup = false;
 function isTypingTarget(t) {
   if (!t) return false;
   const tag = t.tagName;
+  if (tag === "INPUT" && t.type === "range") return false;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
 }
 
