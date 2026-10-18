@@ -130,6 +130,8 @@ function showScreen(name) {
   // 「部屋を出る」ボタンはロビー画面のみ表示（ゲーム中の誤タップ・誤退出を防止）
   $("btn-leave").classList.toggle("hidden", name !== "lobby");
   $("room-actions").classList.toggle("hidden", name === "login");
+  // ゲーム画面では見出しを隠して、画面を広く使う（スマホでのスクロールを減らす）
+  document.querySelector(".container").classList.toggle("in-game", name !== "login" && name !== "lobby");
 }
 
 // ============================================================
@@ -570,6 +572,12 @@ function updateUI() {
   $("st-max-mistakes").textContent = n;
   $("st-series").textContent = seriesSummary(roomData.series);
 
+  // 今ラウンドの回答者（キャプテン）を、書いている最中も常に見えるようにする
+  if (status !== "lobby" && n > 0) {
+    const capId = ids[roomData.captainIndex % n];
+    $("st-captain").textContent = capId === myId ? `${nameOf(capId)}（あなた）` : nameOf(capId);
+  }
+
   // ゲーム中の切断警告とホストの中断ボタン
   $("btn-abort").classList.toggle("hidden", !(isHost && status !== "lobby"));
   const offlineNames = status === "lobby" ? [] :
@@ -671,10 +679,13 @@ const drawCanvas = $("draw-canvas");
 
 const DRAW_LIMIT_MS = 30000;   // 画家が残り1人になってからの制限時間
 const HISTORY_LIMIT = 100;     // 戻す／進むの履歴の最大数
-const STAMP_LABELS = { circle: "赤い丸", square: "青い四角", triangle: "緑の三角", bar: "黄色い棒" };
+const NUDGE_STEP = 8;          // キーボードでの位置移動幅(px)。Shift併用で細かく
+const NUDGE_FINE = 2;
 
-let toolMode = "stamp";  // "stamp"（押す）| "select"（選択・消しゴム・レイヤー）
-let selectedIdx = -1;    // 選択モードで選んでいるスタンプの番号（配列の後ろほど前面）
+// ツール：stamp＝スタンプを押す／erase＝消しゴム（図形をタップして消す）
+//         layer＝レイヤー（図形をタップして選び、前へ/後ろへボタンで重なり順を変更）
+let toolMode = "stamp";
+let selectedIdx = -1;    // レイヤーで選んでいる図形の番号（配列の後ろほど前面）
 let autoSubmittedRound = null;
 let forcedRound = null;
 let deadlineSetRound = null;
@@ -740,7 +751,6 @@ function centerOf(orient) {
   return { x: w / 2, y: h / 2 };
 }
 
-// 画家ごとの未提出状況から、制限時間の起動・表示を行う
 function renderDraw(ids, isCaptain, isHost) {
   showScreen("draw");
   const sheets = roomData.sheets || {};
@@ -777,21 +787,17 @@ function renderDraw(ids, isCaptain, isHost) {
   $("captain-wait-view").classList.toggle("hidden", !isCaptain);
   $("painter-draw-view").classList.toggle("hidden", isCaptain);
 
-  // 画家ごとの提出状況（シート番号とは紐付けない）
-  const owners = ids.filter(id => sheetKeys.some(k => sheets[k].ownerId === id));
-  const progressRows = owners.map(id => {
-    const mineKeys = sheetKeys.filter(k => sheets[k].ownerId === id);
-    const done = mineKeys.filter(k => sheets[k].submitted).length;
-    return { name: nameOf(id), total: mineKeys.length, done };
-  });
-
   if (isCaptain) {
+    // 画家ごとの提出状況（シート番号とは紐付けない）
+    const owners = ids.filter(id => sheetKeys.some(k => sheets[k].ownerId === id));
     const list = $("draw-progress-list");
     list.innerHTML = "";
-    progressRows.forEach(r => {
-      const row = el("div", "", `${r.name}${r.total > 1 ? `（${r.done}/${r.total}枚）` : ""}`);
+    owners.forEach(id => {
+      const mineKeys = sheetKeys.filter(k => sheets[k].ownerId === id);
+      const done = mineKeys.filter(k => sheets[k].submitted).length;
+      const row = el("div", "", `${nameOf(id)}${mineKeys.length > 1 ? `（${done}/${mineKeys.length}枚）` : ""}`);
       row.style.cssText = "margin: 8px 0; font-size: 1.1rem;";
-      const finished = r.done === r.total;
+      const finished = done === mineKeys.length;
       row.appendChild(el("span", "badge " + (finished ? "badge-done" : "badge-wait"), finished ? "提出完了！" : "描画中..."));
       list.appendChild(row);
     });
@@ -816,16 +822,6 @@ function renderDraw(ids, isCaptain, isHost) {
     });
   }
 
-  const prog = $("painter-progress");
-  prog.innerHTML = "";
-  progressRows.forEach(r => {
-    const finished = r.done === r.total;
-    const s = el("span", "", r.name);
-    s.appendChild(el("span", "badge " + (finished ? "badge-done" : "badge-wait"), finished ? "提出済" : "作成中"));
-    s.style.marginRight = "8px";
-    prog.appendChild(s);
-  });
-
   $("my-word").textContent = sheet.word;
   syncDrawControls();
   tickDrawTimer();
@@ -846,51 +842,53 @@ function syncDrawControls() {
   const c = currentSheetCtx();
   if (!c) return;
   const { state, submitted } = c;
+  if (submitted) toolMode = "stamp";
   const limit = stampLimit(roomData.round);
   const remaining = Math.max(0, limit - state.stamps.length);
   if (selectedIdx >= state.stamps.length) selectedIdx = -1;
+  if (toolMode !== "layer") selectedIdx = -1;
   $("remaining-stamps").textContent = remaining;
+  $("angle-val").textContent = currentAngle;
 
-  const isSelect = toolMode === "select";
-  $("row-stamp-actions").classList.toggle("hidden", isSelect);
-  $("row-select-actions").classList.toggle("hidden", !isSelect);
-  $("btn-mode-toggle").textContent = isSelect ? "📌押す" : "👆選択";
-  drawCanvas.style.cursor = isSelect ? "pointer" : "crosshair";
+  // 行1：現在のツールをハイライト
+  document.querySelectorAll(".stamp-btn[data-type]").forEach(b => {
+    b.classList.toggle("active", toolMode === "stamp" && b.dataset.type === selectedStampType);
+  });
+  $("btn-tool-erase").classList.toggle("active", toolMode === "erase");
+  $("btn-tool-layer").classList.toggle("active", toolMode === "layer");
+  $("btn-tool-erase").disabled = submitted;
+  $("btn-tool-layer").disabled = submitted;
+
+  // 行2：モード別
+  $("ctx-stamp").classList.toggle("hidden", toolMode !== "stamp");
+  $("ctx-erase").classList.toggle("hidden", toolMode !== "erase");
+  $("ctx-layer").classList.toggle("hidden", toolMode !== "layer");
+  const hasSel = toolMode === "layer" && selectedIdx >= 0;
+  $("layer-info").classList.toggle("hidden", hasSel);
+  $("layer-buttons").classList.toggle("hidden", !hasSel);
+  if (hasSel) {
+    $("btn-layer-up").disabled = selectedIdx >= state.stamps.length - 1;
+    $("btn-layer-front").disabled = $("btn-layer-up").disabled;
+    $("btn-layer-down").disabled = selectedIdx <= 0;
+    $("btn-layer-back").disabled = $("btn-layer-down").disabled;
+  }
+  drawCanvas.style.cursor = toolMode === "stamp" ? "crosshair" : "pointer";
 
   const commitBtn = $("btn-stamp-commit");
   commitBtn.disabled = submitted || remaining <= 0;
   commitBtn.textContent = submitted
     ? "提出済み"
     : remaining <= 0
-      ? "上限です（↩/消すでやり直し）"
+      ? "上限です（↩や🧽でやり直し）"
       : `📌 押す！（残り${remaining}回）`;
 
-  const hasSel = selectedIdx >= 0 && !submitted;
-  $("btn-erase").disabled = !hasSel;
-  $("btn-layer-up").disabled = !hasSel || selectedIdx >= state.stamps.length - 1;
-  $("btn-layer-down").disabled = !hasSel || selectedIdx <= 0;
-  $("btn-layer-front").disabled = $("btn-layer-up").disabled;
-  $("btn-layer-back").disabled = $("btn-layer-down").disabled;
+  // 行3・4
   $("btn-undo").disabled = submitted || state.undo.length === 0;
   $("btn-redo").disabled = submitted || state.redo.length === 0;
-  $("btn-clear").disabled = submitted || state.stamps.length === 0;
   $("btn-rotate-sheet").disabled = submitted;
-  $("btn-mode-toggle").disabled = submitted;
-
   const submitBtn = $("btn-submit-sheet");
   submitBtn.disabled = submitted;
   submitBtn.textContent = submitted ? "提出済み（他の人を待っています）" : "✅ 完成！このシートを提出する";
-
-  const hint = $("draw-hint");
-  if (submitted) {
-    hint.textContent = "このシートは提出済みです。";
-  } else if (isSelect) {
-    hint.textContent = selectedIdx >= 0
-      ? `選択中：${STAMP_LABELS[state.stamps[selectedIdx].type]}（下から${selectedIdx + 1}番目／全${state.stamps.length}個）。🧽で消す・⬆⬇で重なり順を変えられます。`
-      : "消したい・重なり順を変えたいスタンプを、キャンバス上でタップして選んでください。";
-  } else {
-    hint.textContent = "キャンバスをタップ/ドラッグで仮置き → 「押す！」で確定。端からのはみ出し押しもOK。（PC：ホイール回転／ダブルクリックで押印）";
-  }
 
   redrawActiveCanvas();
 }
@@ -899,11 +897,11 @@ function redrawActiveCanvas() {
   const c = currentSheetCtx();
   if (!c) return;
   const { state, submitted } = c;
-  if (toolMode === "select" && !submitted) {
+  if (toolMode === "layer" && !submitted) {
     renderSheetWithSelection(drawCanvas, state, selectedIdx);
     return;
   }
-  const canStamp = !submitted && state.stamps.length < stampLimit(roomData.round);
+  const canStamp = !submitted && toolMode === "stamp" && state.stamps.length < stampLimit(roomData.round);
   const ghost = canStamp
     ? { type: selectedStampType, x: previewPos.x, y: previewPos.y, angle: currentAngle }
     : null;
@@ -950,18 +948,22 @@ function doRedo() {
   updateUI();
 }
 
-// ---- スタンプ操作 ----
-function setStampType(type) {
-  selectedStampType = type;
-  document.querySelectorAll(".stamp-btn").forEach(b => b.classList.toggle("active", b.dataset.type === type));
-  redrawActiveCanvas();
-}
-
+// ---- ツール切替・スタンプ操作 ----
 function setToolMode(mode) {
   if (!editableCtx()) return;
   toolMode = mode;
   selectedIdx = -1;
   syncDrawControls();
+}
+
+// 消しゴム／レイヤーボタン：もう一度押すとスタンプモードに戻る
+function toggleTool(mode) {
+  setToolMode(toolMode === mode ? "stamp" : mode);
+}
+
+function setStampType(type) {
+  selectedStampType = type;
+  setToolMode("stamp");
 }
 
 function commitStamp() {
@@ -978,7 +980,7 @@ function commitStamp() {
   });
 }
 
-// 消しゴム：選択中のスタンプを消す（消した分、押せる回数が戻る）
+// 選択中の図形を消す（消した分、押せる回数が戻る）
 function eraseSelected() {
   const c = editableCtx();
   if (!c || selectedIdx < 0 || selectedIdx >= c.state.stamps.length) return;
@@ -1005,10 +1007,10 @@ function moveLayer(how) {
   });
 }
 
-// 選択をキーボードで順送り（履歴には積まない）
+// レイヤー選択をキーボードで順送り（履歴には積まない）
 function cycleSelect(dir) {
   const c = editableCtx();
-  if (!c || toolMode !== "select") return;
+  if (!c || toolMode !== "layer") return;
   const len = c.state.stamps.length;
   if (len === 0) return;
   selectedIdx = selectedIdx < 0
@@ -1042,35 +1044,19 @@ function nudge(dx, dy, step) {
   redrawActiveCanvas();
 }
 
-function currentStep() {
-  const stepRadio = document.querySelector('input[name="step-size"]:checked');
-  return stepRadio ? parseInt(stepRadio.value, 10) : 8;
-}
-
-// 回転
-const angleSlider = $("angle-slider");
-const angleVal = $("angle-val");
-
 function setAngle(a) {
   currentAngle = ((Math.round(a) % 360) + 360) % 360;
-  angleSlider.value = currentAngle;
-  angleVal.textContent = currentAngle;
+  $("angle-val").textContent = currentAngle;
   redrawActiveCanvas();
 }
 
 // ---- ボタン・ポインタのイベント ----
-document.querySelectorAll(".stamp-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    if (toolMode === "select") toolMode = "stamp";
-    selectedIdx = -1;
-    setStampType(btn.dataset.type);
-    syncDrawControls();
-  });
+document.querySelectorAll(".stamp-btn[data-type]").forEach(btn => {
+  btn.addEventListener("click", () => setStampType(btn.dataset.type));
 });
+$("btn-tool-erase").addEventListener("click", () => toggleTool("erase"));
+$("btn-tool-layer").addEventListener("click", () => toggleTool("layer"));
 
-angleSlider.addEventListener("input", (e) => setAngle(parseInt(e.target.value, 10)));
-angleSlider.addEventListener("change", () => angleSlider.blur());
-document.querySelectorAll('input[name="step-size"]').forEach(r => r.addEventListener("change", () => r.blur()));
 document.querySelectorAll(".btn-angle-step").forEach(btn => {
   btn.addEventListener("click", () => setAngle(currentAngle + parseInt(btn.dataset.da, 10)));
 });
@@ -1079,13 +1065,8 @@ drawCanvas.addEventListener("wheel", (e) => {
   setAngle(currentAngle + (e.deltaY > 0 ? 5 : -5));
 }, { passive: false });
 
-document.querySelectorAll(".dpad-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    nudge(parseInt(btn.dataset.dx, 10), parseInt(btn.dataset.dy, 10), currentStep());
-  });
-});
-
-// キャンバス上のタップ・ドラッグ：スタンプモード＝仮置き移動／選択モード＝スタンプ選択
+// キャンバス上のタップ・ドラッグ
+//   スタンプ：仮置き位置を移動／消しゴム：タップした図形を消す／レイヤー：タップした図形を選ぶ
 function getCanvasCoords(e) {
   const rect = drawCanvas.getBoundingClientRect();
   return {
@@ -1104,10 +1085,11 @@ function movePreviewTo(e) {
 drawCanvas.addEventListener("pointerdown", (e) => {
   const c = currentSheetCtx();
   if (!c) return;
-  if (toolMode === "select" && !c.submitted) {
+  if (!c.submitted && toolMode !== "stamp") {
     const p = getCanvasCoords(e);
     selectedIdx = findStampAt(c.state.stamps, p.x, p.y);
-    syncDrawControls();
+    if (toolMode === "erase") eraseSelected();   // タップした図形をその場で消す
+    else syncDrawControls();                     // レイヤー：選択して「前へ/後ろへ」ボタンを出す
     return;
   }
   isDraggingPreview = true;
@@ -1123,8 +1105,6 @@ window.addEventListener("pointercancel", () => { isDraggingPreview = false; });
 
 $("btn-stamp-commit").addEventListener("click", commitStamp);
 drawCanvas.addEventListener("dblclick", commitStamp);
-$("btn-mode-toggle").addEventListener("click", () => setToolMode(toolMode === "stamp" ? "select" : "stamp"));
-$("btn-erase").addEventListener("click", eraseSelected);
 $("btn-layer-up").addEventListener("click", () => moveLayer("up"));
 $("btn-layer-down").addEventListener("click", () => moveLayer("down"));
 $("btn-layer-front").addEventListener("click", () => moveLayer("front"));
@@ -1132,7 +1112,6 @@ $("btn-layer-back").addEventListener("click", () => moveLayer("back"));
 $("btn-rotate-sheet").addEventListener("click", rotateSheet);
 $("btn-undo").addEventListener("click", doUndo);
 $("btn-redo").addEventListener("click", doRedo);
-$("btn-clear").addEventListener("click", clearAll);
 
 // ボタンを押した後にフォーカスが残ると、Space/Enter のキー操作と二重に反応するため外す
 $("painter-draw-view").addEventListener("click", (e) => {
@@ -1157,6 +1136,7 @@ document.addEventListener("keydown", (e) => {
 
   const k = e.code;
   const ctrl = e.ctrlKey || e.metaKey;
+  const step = e.shiftKey ? NUDGE_FINE : NUDGE_STEP;
   let handled = true;
 
   if (ctrl) {
@@ -1166,7 +1146,7 @@ document.addEventListener("keydown", (e) => {
     else handled = false;
   } else if (e.altKey) {
     handled = false;
-  } else if (toolMode === "select" && ["[", "]", "{", "}"].includes(e.key)) {
+  } else if (toolMode === "layer" && ["[", "]", "{", "}"].includes(e.key)) {
     // レイヤー操作（Shift併用で最前面/最背面）
     if (e.key === "]") moveLayer("up");
     else if (e.key === "[") moveLayer("down");
@@ -1178,14 +1158,14 @@ document.addEventListener("keydown", (e) => {
         if (toolMode === "stamp") { commitStamp(); if (k === "Space") swallowSpaceKeyup = true; }
         else handled = false;
         break;
-      case "Digit1": case "Numpad1": toolMode = "stamp"; selectedIdx = -1; setStampType("circle"); syncDrawControls(); break;
-      case "Digit2": case "Numpad2": toolMode = "stamp"; selectedIdx = -1; setStampType("square"); syncDrawControls(); break;
-      case "Digit3": case "Numpad3": toolMode = "stamp"; selectedIdx = -1; setStampType("triangle"); syncDrawControls(); break;
-      case "Digit4": case "Numpad4": toolMode = "stamp"; selectedIdx = -1; setStampType("bar"); syncDrawControls(); break;
-      case "ArrowLeft": if (toolMode === "stamp") nudge(-1, 0, e.shiftKey ? 2 : currentStep()); else handled = false; break;
-      case "ArrowRight": if (toolMode === "stamp") nudge(1, 0, e.shiftKey ? 2 : currentStep()); else handled = false; break;
-      case "ArrowUp": if (toolMode === "stamp") nudge(0, -1, e.shiftKey ? 2 : currentStep()); else handled = false; break;
-      case "ArrowDown": if (toolMode === "stamp") nudge(0, 1, e.shiftKey ? 2 : currentStep()); else handled = false; break;
+      case "Digit1": case "Numpad1": setStampType("circle"); break;
+      case "Digit2": case "Numpad2": setStampType("square"); break;
+      case "Digit3": case "Numpad3": setStampType("triangle"); break;
+      case "Digit4": case "Numpad4": setStampType("bar"); break;
+      case "ArrowLeft": if (toolMode === "stamp") nudge(-1, 0, step); else handled = false; break;
+      case "ArrowRight": if (toolMode === "stamp") nudge(1, 0, step); else handled = false; break;
+      case "ArrowUp": if (toolMode === "stamp") nudge(0, -1, step); else handled = false; break;
+      case "ArrowDown": if (toolMode === "stamp") nudge(0, 1, step); else handled = false; break;
       case "KeyQ": setAngle(currentAngle - 45); break;
       case "KeyW": setAngle(currentAngle + 45); break;
       case "KeyA": setAngle(currentAngle - 15); break;
@@ -1195,17 +1175,19 @@ document.addEventListener("keydown", (e) => {
       case "KeyC": setAngle(currentAngle - 1); break;
       case "KeyV": setAngle(currentAngle + 1); break;
       case "KeyT": rotateSheet(); break;
-      case "KeyE": setToolMode(toolMode === "stamp" ? "select" : "stamp"); break;
+      case "KeyE": toggleTool("erase"); break;
+      case "KeyL": toggleTool("layer"); break;
+      case "Escape": setToolMode("stamp"); break;
       case "Delete":
         if (e.shiftKey) clearAll();
-        else if (toolMode === "select") eraseSelected();
+        else if (toolMode === "layer" && selectedIdx >= 0) eraseSelected();
         else handled = false;
         break;
       case "Backspace":
-        if (toolMode === "select") eraseSelected(); else handled = false;
+        if (toolMode === "layer" && selectedIdx >= 0) eraseSelected(); else handled = false;
         break;
-      case "Comma": cycleSelect(-1); handled = toolMode === "select"; break;
-      case "Period": cycleSelect(1); handled = toolMode === "select"; break;
+      case "Comma": cycleSelect(-1); handled = toolMode === "layer"; break;
+      case "Period": cycleSelect(1); handled = toolMode === "layer"; break;
       case "PageUp": switchSheetTo(activeSheetIndex - 1); break;
       case "PageDown": switchSheetTo(activeSheetIndex + 1); break;
       default: handled = false;

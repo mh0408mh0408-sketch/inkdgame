@@ -45,19 +45,7 @@ button.stamp-confirm { background: var(--stamp-action); font-size: 1.15rem; padd
 .canvas-wrapper { display: inline-block; position: relative; margin: 6px auto; background: #cbd5e1; padding: 10px; border-radius: 12px; max-width: 100%; }
 canvas.draw-canvas { background: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.15); cursor: crosshair; touch-action: none; display: block; max-width: 100%; height: auto; }
 
-/* スマホ向け微調整コントロールパネル */
-.fine-tune-panel { background: #f1f5f9; border: 2px solid #cbd5e1; border-radius: 12px; padding: 10px; max-width: 440px; margin: 8px auto; }
-.dpad-container { display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 10px; }
-.dpad-grid { display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 42px); gap: 4px; justify-content: center; }
-.dpad-btn { padding: 0; margin: 0; font-size: 1.1rem; background: #334155; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; user-select: none; }
-.dpad-center { font-size: 0.75rem; color: #475569; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-.angle-controls { display: flex; flex-direction: column; gap: 6px; align-items: center; }
-.angle-quick-btns { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; }
-.angle-quick-btns button { padding: 6px 10px; font-size: 0.85rem; margin: 0; background: #475569; }
 
-/* 画家の進捗表示 */
-.painter-progress { font-size: 0.85rem; color: #475569; margin: 4px 0 8px; }
-.painter-progress .badge { font-size: 0.75rem; padding: 2px 8px; }
 
 /* カスタムお題ボックス */
 .custom-word-box { background: #f8fafc; border: 2px dashed #94a3b8; border-radius: 10px; padding: 12px; margin: 14px auto; max-width: 600px; text-align: left; }
@@ -119,7 +107,7 @@ select.guess-select { width: 100%; padding: 8px; font-size: 1rem; border-radius:
 .draw-remain { margin-left: 8px; font-size: 0.9rem; }
 .draw-remain strong { font-size: 1.2rem; color: var(--red); }
 .draw-sticky .canvas-wrapper { margin: 2px auto 4px; padding: 6px; }
-canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 38vh; }
+canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 30vh; }
 .draw-sticky #sheet-tabs:empty { display: none; }
 .draw-sticky #sheet-tabs { margin-bottom: 2px; }
 .draw-sticky #sheet-tabs button { padding: 4px 10px; font-size: 0.8rem; margin: 2px; }
@@ -132,19 +120,12 @@ canvas.draw-canvas { width: auto; height: auto; max-width: 100%; max-height: 38v
 .quick-row .btn-angle-step { background: #475569; }
 .quick-row button:disabled { opacity: 0.55; }
 
-.draw-scroll { padding-top: 6px; }
 
 /* タイマー */
 .draw-timer { background: #fef3c7; border: 2px solid #f59e0b; color: #92400e; border-radius: 8px; padding: 4px 8px; font-weight: bold; font-size: 0.9rem; margin: 3px auto; }
 .draw-timer.urgent { background: #fee2e2; border-color: #dc2626; color: #991b1b; animation: timer-blink 0.8s infinite alternate; }
 @keyframes timer-blink { from { opacity: 1; } to { opacity: 0.6; } }
 
-/* キーボード操作一覧 */
-.key-help { margin: 12px auto 0; max-width: 560px; text-align: left; font-size: 0.85rem; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 10px; }
-.key-help summary { cursor: pointer; font-weight: bold; }
-.key-help table { border-collapse: collapse; margin-top: 6px; width: 100%; }
-.key-help th, .key-help td { border-top: 1px solid #e2e8f0; padding: 3px 6px; text-align: left; vertical-align: top; }
-kbd { background: #e2e8f0; border: 1px solid #94a3b8; border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-family: monospace; font-size: 0.85em; }
 
 #btn-rotate-sheet { flex: 1.5; }
 
@@ -157,3 +138,26 @@ kbd { background: #e2e8f0; border: 1px solid #94a3b8; border-bottom-width: 2px; 
   .card { padding: 10px; }
   .room-actions { margin-bottom: 4px; }
 }
+
+/* ===== 1画面に収める画家画面（スクロール不要） ===== */
+.in-game h1 { display: none; }
+.draw-angle { margin-left: 8px; font-size: 0.8rem; color: #475569; }
+.quick-row .tool-btn { font-size: 0.72rem; }
+.ctx-row { min-height: 44px; }
+.ctx-block { display: flex; flex: 1; gap: 4px; align-items: stretch; min-width: 0; }
+.ctx-text { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.82rem; font-weight: bold; color: #334155; background: #f1f5f9; border: 2px dashed #94a3b8; border-radius: 8px; padding: 4px; }
+.quick-row .submit-btn { flex: 1; margin: 0; padding: 11px 8px; font-size: 1.02rem; background: #16a34a; }
+.quick-row .submit-btn:disabled { background: #94a3b8; }
+/* ツールボタンのラベルを折り返さない */
+.quick-row .stamp-btn { white-space: nowrap; font-size: 0.7rem; gap: 2px; padding: 6px 1px; }
+.quick-row .tool-btn { font-size: 0.7rem; }
+.draw-sticky .canvas-wrapper { padding: 4px; }
+@media (max-width: 600px) {
+  .room-actions { margin-bottom: 0; }
+  .room-actions button.small { padding: 3px 8px; font-size: 0.7rem; margin: 2px; }
+  .status-bar { padding: 3px; font-size: 0.72rem; margin-bottom: 4px; }
+  .in-game .card { padding: 8px; margin-bottom: 8px; }
+}
+/* 回答者表示：ステータスバーの先頭で目立たせる */
+.status-captain { flex-basis: 100%; background: #fde68a; border-radius: 8px; padding: 2px 8px; color: #92400e; }
+.status-captain span { font-size: 1.05em; }
